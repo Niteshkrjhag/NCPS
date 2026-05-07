@@ -98,6 +98,19 @@ Open **http://localhost:8000** in your browser. Click **▶ Run** to execute a s
 
 > **This is the recommended way to see the full system working.** The simulation server runs the complete engine pipeline (all 14 signals, graph trust, ML, spatial) and serves the frontend dashboard. No PostgreSQL, Redis, or Kafka needed.
 
+### Run the User-Facing Webapp (No Infrastructure Needed)
+
+```bash
+# From the backend/ directory, with venv activated:
+python -m webapp.server
+```
+
+Open **http://localhost:8000** in your browser. First-time visitors see a permissions consent modal.
+
+> **This is the production user interface.** Users can create posts, vote on credibility, see nearby reports on a map, and view their trust profile. Uses in-memory storage by default — auto-switches to PostgreSQL when available.
+
+> **Note:** The simulator and webapp share port 8000. Run only one at a time. They are completely independent — one cannot affect the other.
+
 ### Run the Simulation (CLI — No Server)
 
 ```bash

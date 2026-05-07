@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NCPS — Your Profile</title>
+  <meta name="description" content="NCPS User Profile — Your trust scores, reliability, and settings">
+  <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+  <header class="app-header">
+    <div class="app-logo">
+      <div class="icon">&#9733;</div>
+      NCPS
+    </div>
+    <nav class="nav-links">
+      <a href="/">Feed</a>
+      <a href="/report.html">Report</a>
+      <a href="/map.html">Map</a>
+      <a href="/profile.html" class="active">Profile</a>
+    </nav>
+    <div class="location-indicator off" id="location-indicator">
+      <span class="dot"></span> Location off
+    </div>
+  </header>
+
+  <div class="main-container">
+    <h1 style="font-size:20px;font-weight:700;margin-bottom:16px">Your Profile</h1>
+
+    <!-- Weight Summary -->
+    <div class="panel mb-16" id="weight-card">
+      <div class="panel-body" style="text-align:center;padding:28px">
+        <div class="loading"><div class="spinner"></div></div>
+      </div>
+    </div>
+
+    <!-- Trust Signals -->
+    <div class="panel mb-16" id="signals-card">
+      <div class="panel-header">
+        <span class="panel-title">Your Trust Signals</span>
+      </div>
+      <div class="panel-body" id="signals-body">
+        <div class="loading"><div class="spinner"></div></div>
+      </div>
+    </div>
+
+    <!-- Weight Decomposition -->
+    <div class="panel mb-16" id="decomp-card" style="display:none">
+      <div class="panel-header">
+        <span class="panel-title">How Your Weight Is Computed</span>
+      </div>
+      <div class="panel-body" id="decomp-body"></div>
+    </div>
+
+    <!-- Activity -->
+    <div class="panel mb-16" id="activity-card">
+      <div class="panel-header">
+        <span class="panel-title">Activity</span>
+      </div>
+      <div class="panel-body" id="activity-body">
+        <div class="loading"><div class="spinner"></div></div>
+      </div>
+    </div>
+
+    <!-- Settings -->
+    <div class="panel mb-16">
+      <div class="panel-header">
+        <span class="panel-title">Settings</span>
+      </div>
+      <div class="panel-body">
+        <!-- Location toggle -->
+        <div class="flex justify-between items-center" style="padding:10px 0;border-bottom:1px solid var(--border-glass)">
+          <div>
+            <div style="font-size:14px;font-weight:500">📍 Location Sharing</div>
+            <div style="font-size:11px;color:var(--text-muted);margin-top:2px">
+              Required for proximity-based features and spatial trust
+            </div>
+          </div>
+          <button class="btn btn-secondary" id="toggle-location" onclick="toggleLocation()"
+                  style="font-size:12px;padding:6px 14px">
+          </button>
+        </div>
+
+        <!-- Notifications toggle -->
+        <div class="flex justify-between items-center" style="padding:10px 0;border-bottom:1px solid var(--border-glass)">
+          <div>
+            <div style="font-size:14px;font-weight:500">🔔 Notifications</div>
+            <div style="font-size:11px;color:var(--text-muted);margin-top:2px">
+              Receive alerts for urgent, credible nearby reports
+            </div>
+          </div>
+          <button class="btn btn-secondary" id="toggle-notif" onclick="toggleNotifications()"
+                  style="font-size:12px;padding:6px 14px">
+          </button>
+        </div>
+
+        <!-- Clear data -->
+        <div class="flex justify-between items-center" style="padding:10px 0">
+          <div>
+            <div style="font-size:14px;font-weight:500">🗑️ Clear Local Data</div>
+            <div style="font-size:11px;color:var(--text-muted);margin-top:2px">
+              Removes your local identity and preferences
+            </div>
+          </div>
+          <button class="btn btn-secondary" onclick="clearData()"
+                  style="font-size:12px;padding:6px 14px;color:var(--accent-red)">
+            Clear
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- What these scores mean -->
+    <div class="panel mb-16">
+      <div class="panel-header">
+        <span class="panel-title">What These Scores Mean</span>
+      </div>
+      <div class="panel-body" style="font-size:12px;color:var(--text-secondary);line-height:1.7">
+        <p><strong style="color:var(--text-primary)">Reliability (R*)</strong> — How often your votes 
+        align with the final credibility. Built from your voting history with time decay.</p>
+        <p class="mt-8"><strong style="color:var(--text-primary)">Experience (Exp)</strong> — Your 
+        accumulated activity level. More votes and posts → higher experience.</p>
+        <p class="mt-8"><strong style="color:var(--text-primary)">Trust (T)</strong> — Network-propagated 
+        trust score. Influenced by who you vote with and the trust of your peers.</p>
+        <p class="mt-8"><strong style="color:var(--text-primary)">Anomaly (Anom)</strong> — How unusual 
+        your behavior is. High anomaly means the system detects patterns similar to bots or manipulation.</p>
+        <p class="mt-8"><strong style="color:var(--text-primary)">Location Conf (L)</strong> — How 
+        confident the system is in your location. Based on GPS accuracy, movement plausibility, and consistency.</p>
+        <p class="mt-8"><strong style="color:var(--text-primary)">Weight (w)</strong> — Your final 
+        influence on post credibility. <code class="mono" style="font-size:11px">w = T × (1 − Anom) × Exp</code></p>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/js/app.js"></script>
+  <script>
+    async function loadProfile() {
+      const userId = getUserId();
+
+      // Update settings toggles
+      updateSettingsUI();
+
+      try {
+        const state = await apiCall('/api/user/' + userId + '/state');
+        renderProfile(state);
+      } catch (e) {
+        document.getElementById('weight-card').querySelector('.panel-body').innerHTML =
+          '<div style="text-align:center;color:var(--text-muted);padding:20px">New user — vote and create posts to build your profile</div>';
+        document.getElementById('signals-body').innerHTML =
+          '<div style="color:var(--text-muted);font-size:13px;padding:8px 0">No data yet. Start by voting on posts in the feed.</div>';
+        document.getElementById('activity-body').innerHTML =
+          '<div style="color:var(--text-muted);font-size:13px;padding:8px 0">No activity recorded yet.</div>';
+      }
+    }
+
+    function renderProfile(state) {
+      const sc = (v) => v >= 0.7 ? '#10b981' : v >= 0.4 ? '#f59e0b' : '#ef4444';
+
+      // Weight summary
+      document.getElementById('weight-card').querySelector('.panel-body').innerHTML =
+        '<div style="font-size:56px;font-weight:700;font-family:JetBrains Mono,monospace;color:' + sc(state.weight) + '">' +
+        state.weight.toFixed(3) + '</div>' +
+        '<div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-top:6px">Your Weight (w_i)</div>' +
+        '<div style="font-size:12px;color:var(--text-secondary);margin-top:8px">' +
+        'This determines how much your votes influence post credibility' +
+        '</div>';
+
+      // Trust signals
+      const signals = [
+        { name: 'Reliability (R*)', value: state.r_star, color: sc(state.r_star) },
+        { name: 'Experience (Exp)', value: state.exp_score, color: sc(state.exp_score) },
+        { name: 'Trust (T)', value: state.trust_score, color: sc(state.trust_score) },
+        { name: 'Anomaly (Anom)', value: state.anomaly_score, color: sc(1 - state.anomaly_score) },
+        { name: 'Location Conf (L)', value: state.location_confidence, color: sc(state.location_confidence) },
+      ];
+
+      document.getElementById('signals-body').innerHTML = signals.map(s =>
+        '<div class="signal-bar">' +
+        '<span class="signal-name">' + s.name + '</span>' +
+        '<div class="signal-track"><div class="signal-fill" style="width:' + (s.value * 100) + '%;background:' + s.color + '"></div></div>' +
+        '<span class="signal-value" style="color:' + s.color + '">' + s.value.toFixed(3) + '</span>' +
+        '</div>'
+      ).join('');
+
+      // Weight decomposition
+      const decompCard = document.getElementById('decomp-card');
+      decompCard.style.display = 'block';
+      document.getElementById('decomp-body').innerHTML =
+        '<div style="display:flex;align-items:center;justify-content:center;gap:12px;flex-wrap:wrap;padding:12px 0">' +
+        decompBox('T', state.trust_score, sc(state.trust_score)) +
+        '<span style="font-size:18px;color:var(--text-muted)">×</span>' +
+        decompBox('1−Anom', 1 - state.anomaly_score, sc(1 - state.anomaly_score)) +
+        '<span style="font-size:18px;color:var(--text-muted)">×</span>' +
+        decompBox('Exp', state.exp_score, sc(state.exp_score)) +
+        '<span style="font-size:18px;color:var(--text-muted)">=</span>' +
+        decompBox('w', state.weight, sc(state.weight), true) +
+        '</div>';
+
+      // Activity
+      document.getElementById('activity-body').innerHTML =
+        '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;text-align:center">' +
+        statBox('Votes', state.vote_count) +
+        statBox('Posts', state.post_count) +
+        statBox('Since', timeAgo(state.created_at) || 'Just now') +
+        '</div>';
+    }
+
+    function decompBox(label, value, color, big) {
+      const size = big ? '28px' : '20px';
+      return '<div style="text-align:center;padding:10px 14px;background:var(--bg-glass);border-radius:var(--radius-sm);min-width:70px">' +
+        '<div class="mono" style="font-size:' + size + ';font-weight:700;color:' + color + '">' + value.toFixed(3) + '</div>' +
+        '<div style="font-size:10px;color:var(--text-muted);margin-top:3px">' + label + '</div></div>';
+    }
+
+    function statBox(label, value) {
+      return '<div style="padding:14px;background:var(--bg-glass);border-radius:var(--radius-sm)">' +
+        '<div class="mono" style="font-size:22px;font-weight:600;color:var(--text-primary)">' + value + '</div>' +
+        '<div style="font-size:10px;color:var(--text-muted);margin-top:2px;text-transform:uppercase;letter-spacing:0.3px">' + label + '</div></div>';
+    }
+
+    // ── Settings ──
+
+    function updateSettingsUI() {
+      const prefs = getPrefs();
+      const locBtn = document.getElementById('toggle-location');
+      const notifBtn = document.getElementById('toggle-notif');
+      locBtn.textContent = prefs.location_enabled ? 'Enabled ✓' : 'Enable';
+      locBtn.style.color = prefs.location_enabled ? 'var(--accent-green)' : '';
+      notifBtn.textContent = prefs.notifications_enabled ? 'Enabled ✓' : 'Enable';
+      notifBtn.style.color = prefs.notifications_enabled ? 'var(--accent-green)' : '';
+    }
+
+    async function toggleLocation() {
+      const prefs = getPrefs();
+      if (prefs.location_enabled) {
+        prefs.location_enabled = false;
+        savePrefs(prefs);
+        stopLocationTracking();
+        showToast('Location disabled', 'info');
+      } else {
+        try {
+          await new Promise((resolve, reject) => {
+            navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 10000 });
+          });
+          prefs.location_enabled = true;
+          savePrefs(prefs);
+          startLocationTracking();
+          showToast('Location enabled', 'success');
+        } catch (e) {
+          showToast('Location permission denied', 'error');
+        }
+      }
+      updateSettingsUI();
+    }
+
+    async function toggleNotifications() {
+      const prefs = getPrefs();
+      if (prefs.notifications_enabled) {
+        prefs.notifications_enabled = false;
+        savePrefs(prefs);
+        showToast('Notifications disabled', 'info');
+      } else {
+        if ('Notification' in window) {
+          const perm = await Notification.requestPermission();
+          if (perm === 'granted') {
+            prefs.notifications_enabled = true;
+            savePrefs(prefs);
+            showToast('Notifications enabled', 'success');
+          } else {
+            showToast('Notification permission denied', 'error');
+          }
+        }
+      }
+      updateSettingsUI();
+    }
+
+    function clearData() {
+      if (confirm('This will clear your local identity, preferences, and vote history. Continue?')) {
+        localStorage.removeItem('ncps_user_id');
+        localStorage.removeItem('ncps_prefs');
+        localStorage.removeItem('ncps_votes');
+        stopLocationTracking();
+        showToast('Local data cleared', 'info');
+        setTimeout(() => location.reload(), 1000);
+      }
+    }
+
+    function onAppReady() {
+      loadProfile();
+    }
+  </script>
+</body>
+</html>

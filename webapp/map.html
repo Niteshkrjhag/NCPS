@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NCPS — Nearby Reports Map</title>
+  <meta name="description" content="NCPS Map — See nearby reports with credibility and propagation radius visualization">
+  <link rel="stylesheet" href="/static/css/style.css">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <style>
+    .leaflet-container { background: #0a0e17; }
+    .leaflet-control-zoom a {
+      background: rgba(17,24,39,0.9) !important;
+      color: #94a3b8 !important;
+      border-color: rgba(255,255,255,0.1) !important;
+    }
+    .leaflet-control-zoom a:hover { color: #f1f5f9 !important; }
+    .leaflet-popup-content-wrapper {
+      background: rgba(17,24,39,0.95) !important;
+      color: #f1f5f9 !important;
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 10px !important;
+      box-shadow: 0 10px 40px rgba(0,0,0,0.5) !important;
+    }
+    .leaflet-popup-tip { background: rgba(17,24,39,0.95) !important; }
+    .leaflet-popup-content {
+      font-family: 'Inter', sans-serif;
+      font-size: 12px;
+      margin: 10px 14px !important;
+    }
+    .popup-title { font-weight: 600; font-size: 14px; margin-bottom: 6px; }
+    .popup-content { color: #94a3b8; margin-bottom: 8px; line-height: 1.5; }
+    .popup-cred { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+    .popup-cred-bar {
+      flex: 1; height: 5px; background: rgba(255,255,255,0.06);
+      border-radius: 3px; overflow: hidden;
+    }
+    .popup-cred-fill { height: 100%; border-radius: 3px; }
+    .popup-meta { font-size: 11px; color: #64748b; }
+    .popup-vote-btns { display: flex; gap: 6px; margin-top: 8px; }
+    .popup-vote-btn {
+      padding: 4px 10px; border-radius: 999px; font-size: 11px;
+      font-weight: 500; border: 1px solid rgba(255,255,255,0.1);
+      background: transparent; color: #94a3b8; cursor: pointer;
+      font-family: inherit;
+    }
+    .popup-vote-btn:hover { background: rgba(255,255,255,0.07); color: #f1f5f9; }
+  </style>
+</head>
+<body>
+  <header class="app-header">
+    <div class="app-logo">
+      <div class="icon">&#9733;</div>
+      NCPS
+    </div>
+    <nav class="nav-links">
+      <a href="/">Feed</a>
+      <a href="/report.html">Report</a>
+      <a href="/map.html" class="active">Map</a>
+      <a href="/profile.html">Profile</a>
+    </nav>
+    <div class="location-indicator off" id="location-indicator">
+      <span class="dot"></span> Location off
+    </div>
+  </header>
+
+  <div style="position:relative">
+    <div id="map"></div>
+
+    <div class="map-legend">
+      <h4>Legend</h4>
+      <div class="legend-item">
+        <div class="legend-dot" style="background:#3b82f6"></div>
+        <span style="font-size:11px;color:var(--text-secondary)">Your location</span>
+      </div>
+      <div class="legend-item">
+        <div class="legend-dot" style="background:#10b981"></div>
+        <span style="font-size:11px;color:var(--text-secondary)">High credibility</span>
+      </div>
+      <div class="legend-item">
+        <div class="legend-dot" style="background:#f59e0b"></div>
+        <span style="font-size:11px;color:var(--text-secondary)">Medium credibility</span>
+      </div>
+      <div class="legend-item">
+        <div class="legend-dot" style="background:#ef4444"></div>
+        <span style="font-size:11px;color:var(--text-secondary)">Low credibility</span>
+      </div>
+      <div class="legend-item" style="margin-top:4px">
+        <div class="legend-dot" style="background:transparent;border:2px dashed rgba(99,102,241,0.4);width:12px;height:12px"></div>
+        <span style="font-size:11px;color:var(--text-secondary)">Propagation radius</span>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/js/app.js"></script>
+  <script>
+    let map, userMarker, postMarkers, radiusCircles;
+
+    function initMap() {
+      const lat = currentLocation.lat || 28.6139;
+      const lon = currentLocation.lon || 77.2090;
+
+      map = L.map('map', { center: [lat, lon], zoom: 13, zoomControl: true });
+
+      L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+        attribution: '&copy; OpenStreetMap &copy; CARTO',
+        subdomains: 'abcd',
+        maxZoom: 19,
+      }).addTo(map);
+
+      postMarkers = L.layerGroup().addTo(map);
+      radiusCircles = L.layerGroup().addTo(map);
+
+      // User location marker
+      if (currentLocation.lat) {
+        userMarker = L.circleMarker([currentLocation.lat, currentLocation.lon], {
+          radius: 8,
+          fillColor: '#3b82f6',
+          fillOpacity: 0.9,
+          color: '#ffffff',
+          weight: 2,
+        }).addTo(map);
+        userMarker.bindPopup('<div class="popup-title" style="color:#3b82f6">📍 You are here</div>');
+
+        // Pulsing ring
+        L.circleMarker([currentLocation.lat, currentLocation.lon], {
+          radius: 16,
+          fillColor: '#3b82f6',
+          fillOpacity: 0.15,
+          color: 'rgba(59,130,246,0.3)',
+          weight: 1,
+        }).addTo(map);
+      }
+
+      loadMapPosts();
+    }
+
+    async function loadMapPosts() {
+      try {
+        const params = {};
+        if (currentLocation.lat) {
+          params.lat = currentLocation.lat;
+          params.lon = currentLocation.lon;
+        }
+        const query = new URLSearchParams(params).toString();
+        const data = await apiCall('/api/feed' + (query ? '?' + query : ''));
+
+        postMarkers.clearLayers();
+        radiusCircles.clearLayers();
+
+        data.posts.forEach(post => {
+          if (!post.lat || !post.lon) return;
+
+          const color = post.credibility >= 0.7 ? '#10b981' :
+                        post.credibility >= 0.4 ? '#f59e0b' : '#ef4444';
+          const radius = 5 + post.credibility * 5;
+
+          const marker = L.circleMarker([post.lat, post.lon], {
+            radius: radius,
+            fillColor: color,
+            fillOpacity: 0.7,
+            color: color,
+            weight: 2,
+          });
+
+          const credPct = Math.round(post.credibility * 100);
+          marker.bindPopup(
+            '<div class="popup-title">' + escapeHtml(post.content.substring(0, 80)) + (post.content.length > 80 ? '...' : '') + '</div>' +
+            '<div class="popup-cred">' +
+            '<span style="font-size:10px;color:#64748b">Credibility</span>' +
+            '<div class="popup-cred-bar"><div class="popup-cred-fill" style="width:' + credPct + '%;background:' + color + '"></div></div>' +
+            '<span style="font-family:JetBrains Mono;font-size:12px;color:' + color + '">' + post.credibility.toFixed(2) + '</span>' +
+            '</div>' +
+            '<div class="popup-meta">' +
+            (post.urgency >= 0.6 ? '🔴 Urgent · ' : '') +
+            (post.distance_m ? '📍 ' + formatDistance(post.distance_m) + ' · ' : '') +
+            post.vote_count + ' votes' +
+            '</div>' +
+            '<div class="popup-vote-btns">' +
+            '<button class="popup-vote-btn" onclick="mapVote(\'' + post.post_id + '\', 1)">👍 Credible</button>' +
+            '<button class="popup-vote-btn" onclick="mapVote(\'' + post.post_id + '\', -1)">👎 Doubt</button>' +
+            '</div>'
+          );
+
+          postMarkers.addLayer(marker);
+
+          // Propagation radius
+          if (post.radius) {
+            const circle = L.circle([post.lat, post.lon], {
+              radius: post.radius,
+              fillColor: color,
+              fillOpacity: 0.03,
+              color: 'rgba(99,102,241,0.2)',
+              weight: 1,
+              dashArray: '4 4',
+            });
+            radiusCircles.addLayer(circle);
+          }
+        });
+      } catch (e) {
+        console.error('Failed to load map posts:', e);
+      }
+    }
+
+    async function mapVote(postId, vote) {
+      try {
+        await apiCall('/api/post/vote', 'POST', {
+          user_id: getUserId(),
+          post_id: postId,
+          vote: vote,
+        });
+        showToast('Vote recorded', 'success');
+        loadMapPosts();
+      } catch (e) {
+        showToast('Vote failed: ' + e.message, 'error');
+      }
+    }
+
+    function onAppReady() {
+      initMap();
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NCPS — Create Report</title>
+  <meta name="description" content="Submit a new incident report on NCPS. Community-verified credibility.">
+  <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+  <header class="app-header">
+    <div class="app-logo">
+      <div class="icon">&#9733;</div>
+      NCPS
+    </div>
+    <nav class="nav-links">
+      <a href="/">Feed</a>
+      <a href="/report.html" class="active">Report</a>
+      <a href="/map.html">Map</a>
+      <a href="/profile.html">Profile</a>
+    </nav>
+    <div class="location-indicator off" id="location-indicator">
+      <span class="dot"></span> Location off
+    </div>
+  </header>
+
+  <div class="main-container">
+    <h1 style="font-size:20px;font-weight:700;margin-bottom:4px">Create Report</h1>
+    <p class="text-muted mb-16" style="font-size:12px">
+      Report an incident. The community will verify its credibility.
+    </p>
+
+    <div class="panel">
+      <div class="panel-body">
+        <div class="form-group">
+          <label class="form-label">What's happening?</label>
+          <textarea id="report-content" rows="5" maxlength="5000"
+                    placeholder="Describe the incident in detail. Include location, what you observed, and any relevant context..."></textarea>
+          <div class="flex justify-between mt-8">
+            <div id="keyword-hints" style="font-size:11px;color:var(--text-muted)"></div>
+            <div id="char-count" style="font-size:11px;color:var(--text-muted)">0 / 5000</div>
+          </div>
+        </div>
+
+        <!-- Location -->
+        <div class="form-group">
+          <label class="form-label">Location</label>
+          <div id="location-status" class="flex items-center gap-8"
+               style="padding:10px 14px;background:var(--bg-glass);border-radius:var(--radius-sm);font-size:13px">
+            <span style="color:var(--text-muted)">Detecting your location...</span>
+          </div>
+        </div>
+
+        <!-- Urgency preview -->
+        <div id="urgency-preview" style="display:none" class="form-group">
+          <label class="form-label">Detected Urgency</label>
+          <div class="flex items-center gap-8" style="font-size:13px">
+            <span id="urgency-icon"></span>
+            <span id="urgency-text"></span>
+          </div>
+        </div>
+
+        <button class="btn btn-primary btn-block mt-16" onclick="submitReport()" id="submit-btn">
+          Submit Report
+        </button>
+      </div>
+    </div>
+
+    <!-- Success card (hidden initially) -->
+    <div id="success-card" style="display:none" class="panel mt-16">
+      <div class="panel-body" style="text-align:center;padding:32px">
+        <div style="font-size:48px;margin-bottom:12px">✅</div>
+        <h3 style="font-size:16px;margin-bottom:8px">Report Submitted</h3>
+        <p class="text-muted" style="font-size:13px;margin-bottom:16px">
+          Your report has been created. Its credibility will be determined by community verification.
+        </p>
+        <div class="flex gap-8" style="justify-content:center">
+          <a href="/" class="btn btn-primary" style="font-size:13px">View Feed</a>
+          <button class="btn btn-secondary" onclick="resetForm()" style="font-size:13px">New Report</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/js/app.js"></script>
+  <script>
+    const urgencyKeywords = {
+      'fire': 1.0, 'accident': 0.9, 'urgent': 0.8, 'help': 0.7,
+      'emergency': 1.0, 'danger': 0.9, 'flood': 0.95, 'earthquake': 1.0,
+      'explosion': 1.0, 'shooting': 1.0, 'traffic': 0.4, 'disruption': 0.5,
+      'blocked': 0.5, 'delayed': 0.4,
+    };
+
+    const contentEl = document.getElementById('report-content');
+    const charCountEl = document.getElementById('char-count');
+    const keywordHintsEl = document.getElementById('keyword-hints');
+    const urgencyPreview = document.getElementById('urgency-preview');
+
+    contentEl.addEventListener('input', () => {
+      // Character count
+      charCountEl.textContent = contentEl.value.length + ' / 5000';
+
+      // Keyword detection
+      const words = contentEl.value.toLowerCase().split(/\s+/);
+      const found = [];
+      let maxUrg = 0;
+      words.forEach(w => {
+        if (urgencyKeywords[w] && !found.includes(w)) {
+          found.push(w);
+          maxUrg = Math.max(maxUrg, urgencyKeywords[w]);
+        }
+      });
+
+      if (found.length > 0) {
+        keywordHintsEl.innerHTML = 'Urgency keywords: ' +
+          found.map(k => '<span class="keyword-highlight">' + k + '</span>').join(' ');
+
+        urgencyPreview.style.display = 'block';
+        const icon = document.getElementById('urgency-icon');
+        const text = document.getElementById('urgency-text');
+        if (maxUrg >= 0.8) {
+          icon.textContent = '🔴';
+          text.innerHTML = '<span style="color:var(--accent-red);font-weight:600">High Urgency</span>';
+        } else if (maxUrg >= 0.4) {
+          icon.textContent = '🟡';
+          text.innerHTML = '<span style="color:var(--accent-yellow);font-weight:600">Medium Urgency</span>';
+        } else {
+          icon.textContent = '🟢';
+          text.innerHTML = '<span style="color:var(--accent-green);font-weight:600">Low Urgency</span>';
+        }
+      } else {
+        keywordHintsEl.innerHTML = '';
+        urgencyPreview.style.display = 'none';
+      }
+    });
+
+    function onAppReady() {
+      // Update location display
+      if (currentLocation.lat) {
+        updateLocationStatus();
+      } else if (getPrefs().location_enabled) {
+        navigator.geolocation.getCurrentPosition(
+          (pos) => {
+            currentLocation.lat = pos.coords.latitude;
+            currentLocation.lon = pos.coords.longitude;
+            updateLocationStatus();
+          },
+          () => {
+            document.getElementById('location-status').innerHTML =
+              '<span style="color:var(--accent-yellow)">📍 Location unavailable — post will have no location</span>';
+          }
+        );
+      } else {
+        document.getElementById('location-status').innerHTML =
+          '<span style="color:var(--text-muted)">📍 Location disabled — <a href="/profile.html">enable in settings</a></span>';
+      }
+    }
+
+    function updateLocationStatus() {
+      const el = document.getElementById('location-status');
+      el.innerHTML = '<span class="dot" style="width:6px;height:6px;border-radius:50%;background:var(--accent-green)"></span>' +
+        '<span style="color:var(--accent-green)">📍 ' + currentLocation.lat.toFixed(4) + ', ' + currentLocation.lon.toFixed(4) + '</span>';
+    }
+
+    async function submitReport() {
+      const content = contentEl.value.trim();
+      if (!content) {
+        showToast('Please describe the incident', 'error');
+        return;
+      }
+      if (content.length < 10) {
+        showToast('Please provide more detail (at least 10 characters)', 'error');
+        return;
+      }
+
+      const btn = document.getElementById('submit-btn');
+      btn.disabled = true;
+      btn.textContent = 'Submitting...';
+
+      try {
+        const result = await apiCall('/api/post/create', 'POST', {
+          user_id: getUserId(),
+          content: content,
+          lat: currentLocation.lat,
+          lon: currentLocation.lon,
+        });
+
+        // Show success
+        document.querySelector('.panel').style.display = 'none';
+        document.getElementById('success-card').style.display = 'block';
+        showToast('Report submitted successfully!', 'success');
+      } catch (e) {
+        showToast('Failed to submit: ' + e.message, 'error');
+      }
+
+      btn.disabled = false;
+      btn.textContent = 'Submit Report';
+    }
+
+    function resetForm() {
+      contentEl.value = '';
+      charCountEl.textContent = '0 / 5000';
+      keywordHintsEl.innerHTML = '';
+      urgencyPreview.style.display = 'none';
+      document.querySelector('.panel').style.display = 'block';
+      document.getElementById('success-card').style.display = 'none';
+    }
+  </script>
+</body>
+</html>
