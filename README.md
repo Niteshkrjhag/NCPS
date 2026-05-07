@@ -207,41 +207,41 @@ The system computes a **user weight** `w_i` for each voter, then uses weighted v
 ### Core Formula Chain
 
 ```
-1. Reliability      R_i = α / (α + β)           ← time-decayed correct/incorrect actions
-2. Confidence       Conf_i = 1 - exp(-k(α + β))  ← evidence strength
-3. R*               R_i* = R_i × Conf_i          ← reliability × confidence
-4. Experience       Exp_i = E_raw / E_max         ← normalized action count
-5. Anomaly          Anom_i = Σ(α_k × D_k)        ← weighted sum of 5 deviation signals
-6. Trust            T_i = graph_propagated(R_i*)  ← network-aware trust (Phase 3+)
-7. User Weight      w_i = T_i × (1 - Anom_i) × Exp_i
+1. Reliability      R_i = α / (α + β)           ← Bayesian ratio of time-decayed correct actions over total actions.
+2. Confidence       Conf_i = 1 - exp(-k(α + β))  ← Grows from 0 toward 1 as more evidence (votes) accumulates.
+3. R*               R_i* = R_i × Conf_i          ← Effective reliability that penalizes users who have few interactions.
+4. Experience       Exp_i = log(1+E) / log(1+E_max) ← Log-normalized action count that provides diminishing returns.
+5. Anomaly          Anom_i = 1 - exp(-Σ(α_k × D_k)) ← Weighted sum of 5 deviation signals, bounded in [0,1].
+6. Trust            T_i = graph_propagated(R_i*)  ← Network-aware trust that can only decrease R_i*, never inflate it.
+7. User Weight      w_i = T_i × (1 - Anom_i) × Exp_i ← Multiplicative gating: all three must be non-zero for influence.
 ```
 
 ```
-8. Signal Mass      S_j⁺ = Σ(w_i × vote_i)      ← weighted positive/negative signals
-9. Effective Mass   N_j = S_j⁺ + S_j⁻            ← total evidence weight
-10. Credibility     C_Bayes = (α₀ + S⁺)/(α₀ + β₀ + N)  ← Bayesian posterior
-11. Final           C_final = (1-α-γ)C_Bayes + α·C_ML + γ·C_memory
-12. Variance        Var_j = Σ(w_i(v_i - C_j)²)/N  ← disagreement measure
+8. Signal Mass      S_j⁺ = Σ(w_i × decay × vote_i) ← Aggregated trust-weighted, time-decayed positive/negative votes.
+9. Effective Mass   N_j = S_j⁺ + S_j⁻              ← Total evidence mass determining how much data supports the post.
+10. Credibility     C_Bayes = (α₀ + S⁺)/(α₀ + β₀ + N) ← Bayesian posterior probability that the post is credible.
+11. Final           C_final = (1-α-γ)C_Bayes + α·C_ML + γ·C_memory ← Blended credibility from crowd, ML, and history.
+12. Variance        Var_j = Σ(w_i(v_i - C_j)²)/N  ← Measures how much voters disagree about the post's credibility.
 ```
 
 ### The 14 Input Signals
 
 | # | Signal | Source | What It Detects |
 |---|--------|--------|-----------------|
-| 1 | R_i* | Voting history | Unreliable voters |
-| 2 | Exp_i | Action count | New/inactive accounts |
-| 3 | D₁ (burst) | Action rate | Rapid-fire bot behavior |
-| 4 | D₂ (entropy) | Vote distribution | Always-agree/disagree patterns |
-| 5 | D₃ (consensus) | Vote vs majority | Contrarian manipulation |
-| 6 | D₄ (coordination) | Graph similarity | Coordinated bot groups |
-| 7 | D₅ (location) | GPS movement | Location spoofing |
-| 8 | T_i | Graph propagation | Network reputation |
-| 9 | L_i | Location history | Location confidence |
-| 10 | S_nav | Page navigation | Non-human browsing |
-| 11 | S_device | Device fingerprint | Device switching |
-| 12 | S_ip | IP patterns | VPN/proxy usage |
-| 13 | S_session | Session duration | Automated session patterns |
-| 14 | S_timing | Vote timing | Inhuman timing regularity |
+| 1 | R_i* (Effective Reliability) | Time-decayed voting history of correct and incorrect actions | Users who consistently provide incorrect or low-quality information |
+| 2 | Exp_i (Experience Score) | Log-normalized count of all user actions over time | New or inactive accounts that have not yet demonstrated enough engagement |
+| 3 | D₁ (Burst Deviation) | Recent action rate compared against baseline activity | Rapid-fire voting behavior that indicates automated bot actions |
+| 4 | D₂ (Entropy Deviation) | Distribution of vote types (upvote vs downvote ratio) | Users who always agree or always disagree, indicating scripted behavior |
+| 5 | D₃ (Consensus Deviation) | How often a user's votes align with ground truth outcomes | Users who persistently vote against the majority in a manipulative pattern |
+| 6 | D₄ (Coordination Score) | Pairwise similarity of voting patterns between users in the graph | Groups of bots that vote on the same posts at the same times in the same direction |
+| 7 | D₅ (Location Inconsistency) | Fraction of GPS movements that exceed physically plausible speed | Users who appear to teleport between distant locations, suggesting GPS spoofing |
+| 8 | T_i (Graph Trust) | Iterative trust propagation through the user interaction graph | Whether a user is embedded in a trustworthy or suspicious network neighborhood |
+| 9 | L_i (Location Confidence) | Composite score from GPS accuracy, speed plausibility, source quality, and continuity | Whether the user's reported location can be trusted for spatial computations |
+| 10 | S_nav (Navigation Deviation) | Step-length and turn-angle distributions of geographic movement | Movement patterns that deviate from typical human navigation behavior |
+| 11 | S_device (Device Consistency) | Entropy of device identifiers used across interactions | Users who frequently rotate between many different devices, suggesting shared bot accounts |
+| 12 | S_ip (IP Consistency) | IP address entropy combined with geographic consistency of IP locations | Users connecting from many different IP addresses or geographically scattered networks |
+| 13 | S_session (Session Continuity) | Duration and variance of browsing sessions compared to human baselines | Sessions that are too short, too long, or too uniform, suggesting automated scripts |
+| 14 | S_timing (Vote Timing) | Variance of inter-vote time gaps combined with burstiness within time windows | Perfectly regular vote timing that no human can achieve, indicating automated voting |
 
 ---
 
@@ -388,68 +388,68 @@ All hyperparameters are centralized in [`backend/app/config.py`](backend/app/con
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `lambda_r` | 0.0001 | Time decay for evidence. 50% decay in ~2 hours. |
-| `confidence_k` | 0.1 | Confidence growth rate. |
-| `reliability_prior` | 0.5 | Default reliability for new users. |
+| `lambda_r` | 0.0001 | Controls how quickly old evidence decays over time. At this value, a vote from 2 hours ago retains approximately 50% of its influence. |
+| `confidence_k` | 0.1 | Determines how fast the confidence term grows as more evidence accumulates. At k=0.1, a user with 5 votes reaches 39% confidence and a user with 20 votes reaches 87% confidence. |
+| `reliability_prior` | 0.5 | The default reliability assigned to brand-new users who have not yet performed any actions, representing maximum uncertainty (50/50). |
 
 ### User Experience (Formula 2)
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `lambda_e` | 0.00005 | Time decay for experience. |
-| `e_max` | 100.0 | Normalization constant. |
+| `lambda_e` | 0.00005 | Controls how quickly experience evidence decays. This is intentionally slower than `lambda_r` (half the rate) because experience should persist longer than reliability corrections. |
+| `e_max` | 100.0 | The maximum expected raw experience value, used as the denominator in the log-normalization formula to keep Exp_i bounded in [0, 1]. |
 
 ### Anomaly Detection (Formula 3)
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `anomaly_alpha_weights` | [0.25, 0.20, 0.20, 0.20, 0.15] | Weights for [burst, entropy, consensus, coordination, location] |
-| `anomaly_beta` | 0.25 | ML anomaly blend (75% rule + 25% ML) |
+| `anomaly_alpha_weights` | [0.25, 0.20, 0.20, 0.20, 0.15] | Importance weights for each anomaly deviation component, ordered as [burst, entropy, consensus, coordination, location]. Burst is highest because rapid-fire voting is the strongest bot indicator, and location is lowest because GPS accuracy can vary legitimately. |
+| `anomaly_beta` | 0.25 | The blend factor between rule-based anomaly (75%) and ML-learned anomaly (25%). Keeps the system interpretable while still benefiting from learned behavioral patterns. |
 
 ### Credibility (Formulas 8-10)
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `credibility_alpha0` | 1.0 | Bayesian prior (positive) |
-| `credibility_beta0` | 1.0 | Bayesian prior (negative) |
-| `credibility_alpha_ml` | 0.15 | ML credibility weight (α) |
-| `credibility_gamma_memory` | 0.10 | Memory credibility weight (γ) |
+| `credibility_alpha0` | 1.0 | The Bayesian prior for positive belief, representing one virtual upvote before any real evidence. This prevents extreme credibility scores when a post has very few interactions. |
+| `credibility_beta0` | 1.0 | The Bayesian prior for negative belief, representing one virtual downvote. Together with alpha0, this sets the initial credibility of any post to 0.5 (neutral). |
+| `credibility_alpha_ml` | 0.15 | The weight given to the ML-predicted credibility score in the final blend. At 0.15, the ML model can nudge a borderline post by approximately ±0.1 but cannot override strong crowd consensus. |
+| `credibility_gamma_memory` | 0.10 | The weight given to memory-based credibility from historically similar posts. At 0.10, recurring misinformation patterns contribute a mild correction without dominating the final score. |
 
 ### Graph Trust (Phase 3)
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `lambda_g` | 0.5 | Propagation blend (0=local only, 1=network only) |
-| `graph_tau` | 60.0 | Time similarity scale (seconds) |
-| `graph_edge_weights` | [0.4, 0.3, 0.3] | [agreement, time_sim, frequency] |
-| `graph_max_neighbors` | 50 | Top-K neighbors per user |
-| `graph_propagation_iterations` | 20 | Max convergence iterations |
-| `graph_convergence_epsilon` | 1e-4 | Convergence threshold |
-| `graph_coordination_threshold` | 0.7 | Coordination suspicion threshold |
+| `lambda_g` | 0.5 | Controls the blend between local reliability (R_i*) and network-propagated trust. At 0.5, a user's trust is equally influenced by their own reliability and their neighbors' assessments. |
+| `graph_tau` | 60.0 | The time scale in seconds used to compute how closely two users voted at the same time. Votes within 60 seconds of each other receive high time-similarity scores. |
+| `graph_edge_weights` | [0.4, 0.3, 0.3] | The weights for [agreement, time_similarity, frequency] when computing edge weights between users. Agreement is highest because voting the same way is the strongest coordination signal. |
+| `graph_max_neighbors` | 50 | The maximum number of neighbors retained per user after pruning. This limits computational cost while preserving the most important connections. |
+| `graph_propagation_iterations` | 20 | The maximum number of iterations allowed for the trust propagation algorithm to converge. In practice, convergence typically occurs within 5-10 iterations. |
+| `graph_convergence_epsilon` | 1e-4 | The maximum allowed change between iterations before the trust propagation is considered converged. Smaller values produce more precise trust scores at the cost of more iterations. |
+| `graph_coordination_threshold` | 0.7 | The similarity threshold above which two users are flagged as potentially coordinated. Below 0.5 would produce too many false alarms from natural agreement, and above 0.9 would miss obvious coordination. |
 
 ### Spatial Trust (Phase 4)
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `location_confidence_weights` | [0.3, 0.25, 0.25, 0.2] | [GPS accuracy, speed, source, continuity] |
-| `location_speed_max` | 340.0 | Max plausible speed (m/s) — speed of sound |
-| `spatial_sigma_p` | 5000.0 | Proximity decay (meters) |
+| `location_confidence_weights` | [0.3, 0.25, 0.25, 0.2] | The weights for the four components of location confidence: [GPS accuracy score, speed plausibility, source quality (GPS vs IP), movement continuity]. GPS accuracy has the highest weight because it is the most direct measure of location quality. |
+| `location_speed_max` | 340.0 | The maximum physically plausible speed in meters per second, set to the speed of sound (340 m/s). Any location transition faster than this is flagged as impossible and indicates GPS spoofing. |
+| `spatial_sigma_p` | 5000.0 | The spatial decay scale in meters for the Gaussian proximity function. At 5km, the proximity score drops to approximately 37% of its maximum value. This covers a meaningful urban area without making distant posts irrelevant. |
 
 ### ML Augmentation (Phase 5)
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `ml_temperature` | 1.5 | Calibration temperature (>1 = softer predictions) |
-| `memory_top_k` | 5 | Similar posts to retrieve |
+| `ml_temperature` | 1.5 | The temperature scaling applied to ML predictions before blending. Values greater than 1.0 make predictions less extreme (closer to 0.5), preventing an overconfident model from dominating the final credibility score. |
+| `memory_top_k` | 5 | The number of most-similar historical posts retrieved by the TF-IDF memory engine. Their known credibility scores are averaged (weighted by similarity) to produce the memory-based credibility estimate. |
 
 ### Extended Signals (Phase 6)
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `signal_nav_kappa` | 2.0 | Navigation deviation scale |
-| `signal_session_delta` | 1.5 | Session continuity sensitivity |
-| `signal_session_gap` | 300.0 | New session threshold (seconds) |
-| `signal_timing_sigma_sq` | 100.0 | Vote timing variance normalization |
+| `signal_nav_kappa` | 2.0 | The scale parameter for the navigation deviation formula. At kappa=2, moderate deviations from typical human movement patterns are tolerated without excessive penalty, while extreme deviations (straight-line bot paths) are heavily penalized. |
+| `signal_session_delta` | 1.5 | Controls how sensitive the session continuity score is to deviations from human session baselines. Higher values are more forgiving of unusual session patterns. |
+| `signal_session_gap` | 300.0 | The time gap in seconds (5 minutes) that defines the boundary between two separate browsing sessions. Interactions separated by more than 5 minutes are treated as belonging to different sessions. |
+| `signal_timing_sigma_sq` | 100.0 | The variance normalization constant for vote timing analysis. Bots typically have near-zero variance (perfectly regular timing), while humans naturally vary by approximately ±10 seconds between actions. |
 
 ### Overriding Defaults
 
@@ -473,11 +473,11 @@ The frontend dashboard provides real-time visualization of the trust system.
 
 | Page | URL | Description |
 |------|-----|-------------|
-| **Dashboard** | `/` | Main view: metrics, user table, D3 network graph, post list, 4-tab analytics |
-| **Map** | `/map.html` | Leaflet.js map with user/post markers and propagation radius circles |
-| **Compare** | `/compare.html` | Phase 1→6 comparison table and bar charts |
-| **User Detail** | `/user.html` | Signal bars, weight decomposition (T×(1-Anom)×Exp = w), trust propagation |
-| **Post Detail** | `/post.html` | Credibility breakdown (C_Bayes + C_ML + C_memory), decision trace |
+| **Dashboard** | `/` | The main overview page displaying key metrics (accuracy, attack success rate, Brier score), a color-coded user table, an interactive D3 force-directed network graph, a post credibility list, and a 4-tab analytics panel covering overview, attack analysis, anomaly detection, and weight distribution. |
+| **Map** | `/map.html` | An interactive Leaflet.js map with OpenStreetMap tiles showing user locations as blue markers, post locations as credibility-colored markers (green for credible, red for low-credibility), and translucent propagation radius circles around each post. |
+| **Compare** | `/compare.html` | A side-by-side comparison of Phase 1 through Phase 6 simulation results, presented as both a data table and four bar charts (accuracy, attack success, anomaly precision, and anomaly recall) showing progressive improvement. |
+| **User Detail** | `/user.html` | A detailed profile page for any selected user, showing individual signal bars (R*, Exp, T, Anom, L), the weight decomposition formula (T × (1-Anom) × Exp = w) with live values, and the trust propagation chain from R* through graph to final T_i. |
+| **Post Detail** | `/post.html` | A detailed page for any selected post, showing the credibility decomposition (C_Bayes, C_ML, and C_memory contributions), the propagation and alert decision traces with all condition evaluations, and the variance/disagreement analysis among voters. |
 
 ### Dashboard Features
 
@@ -496,39 +496,39 @@ The frontend dashboard provides real-time visualization of the trust system.
 
 | Variable | Default | Required |
 |----------|---------|----------|
-| `NCPS_DATABASE_URL` | `postgresql+asyncpg://...localhost/ncps` | Production only |
-| `NCPS_REDIS_URL` | `redis://localhost:6379/0` | Production only |
-| `NCPS_KAFKA_BOOTSTRAP_SERVERS` | `localhost:9092` | Production only |
+| `NCPS_DATABASE_URL` | `postgresql+asyncpg://...localhost/ncps` | Required only for the production API server. The simulation dashboard and webapp run without it using in-memory storage. |
+| `NCPS_REDIS_URL` | `redis://localhost:6379/0` | Required only for the production API server. Provides real-time caching for user state and post credibility lookups. |
+| `NCPS_KAFKA_BOOTSTRAP_SERVERS` | `localhost:9092` | Required only for the production API server. Enables the event streaming pipeline for processing votes and posts asynchronously. |
 
 ### Simulation Settings
 
 The simulation uses these default parameters (configurable in `simulation/runner.py`):
 
-| Setting | Default |
-|---------|---------|
-| Honest users | 40 |
-| Bot users | 20 (in 4 coordinated groups of 5) |
-| Adversarial users | 5 |
-| Noisy users | 5 |
-| True posts | 30 |
-| False posts | 20 |
-| Time steps | 10 |
-| Interactions per step | 5 |
-| Center location | Delhi (28.6139°N, 77.2090°E) |
+| Setting | Default | Explanation |
+|---------|---------|-------------|
+| Honest users | 40 | Simulated users who vote correctly most of the time (probability of correct vote approximately 0.85). |
+| Bot users | 20 (in 4 coordinated groups of 5) | Automated accounts that vote in coordinated groups, always upvoting false content and downvoting true content. |
+| Adversarial users | 5 | Sophisticated attackers who behave normally most of the time but strategically manipulate specific posts. |
+| Noisy users | 5 | Users who vote randomly without malicious intent, representing real-world unreliable but non-adversarial participants. |
+| True posts | 30 | Posts containing accurate information that the system should assign high credibility scores to. |
+| False posts | 20 | Posts containing misinformation that the system should assign low credibility scores to. |
+| Time steps | 10 | The number of discrete time intervals in the simulation, each representing a round of interactions. |
+| Interactions per step | 5 | The number of user-post interactions generated in each time step. |
+| Center location | Delhi (28.6139°N, 77.2090°E) | The geographic center around which simulated user and post locations are generated with random offsets. |
 
 ---
 
 ## Tech Stack
 
-| Layer | Technology |
-|-------|-----------|
-| **Backend** | Python 3.11+, FastAPI, Uvicorn |
-| **Database** | PostgreSQL (primary), Redis (cache) |
-| **Streaming** | Apache Kafka (via aiokafka) |
-| **ORM** | SQLAlchemy 2.0 (async) |
-| **ML** | scikit-learn (Logistic Regression), scipy, numpy |
-| **Frontend** | Vanilla HTML/CSS/JS, D3.js v7, Leaflet.js |
-| **Design** | Dark mode, glassmorphism, Inter + JetBrains Mono fonts |
+| Layer | Technology | Purpose |
+|-------|------------|----------|
+| **Backend** | Python 3.11+, FastAPI, Uvicorn | High-performance async API server with automatic OpenAPI documentation and type validation. |
+| **Database** | PostgreSQL (primary), Redis (cache) | PostgreSQL stores all persistent data (users, posts, interactions, graph). Redis provides real-time caching for user state and credibility lookups. |
+| **Streaming** | Apache Kafka (via aiokafka) | Enables asynchronous event processing for real-time vote and post ingestion at scale. |
+| **ORM** | SQLAlchemy 2.0 (async) | Provides async database access with declarative ORM models and connection pooling. |
+| **ML** | scikit-learn (Logistic Regression), scipy, numpy | Lightweight ML models chosen for small-data reliability, fast inference, and well-calibrated probability outputs. |
+| **Frontend** | Vanilla HTML/CSS/JS, D3.js v7, Leaflet.js | Zero-dependency frontend with D3 for interactive network graphs and Leaflet for geographic map visualization. |
+| **Design** | Dark mode, glassmorphism, Inter + JetBrains Mono fonts | Premium visual design with modern aesthetics, smooth animations, and accessible typography. |
 
 ---
 
