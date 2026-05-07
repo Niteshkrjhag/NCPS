@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NCPS — Spatial Map</title>
+  <meta name="description" content="NCPS Spatial Intelligence — User and post locations with propagation radius visualization">
+  <link rel="stylesheet" href="/static/css/style.css">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <style>
+    #map { width: 100%; height: calc(100vh - 56px); background: #0a0e17; }
+    .leaflet-container { background: #0a0e17; }
+    /* Dark map tiles */
+    .leaflet-tile-pane { filter: brightness(0.6) contrast(1.2) saturate(0.3); }
+    .leaflet-control-zoom a {
+      background: rgba(17,24,39,0.9) !important;
+      color: #94a3b8 !important;
+      border-color: rgba(255,255,255,0.1) !important;
+    }
+    .leaflet-control-zoom a:hover { color: #f1f5f9 !important; }
+    .map-controls {
+      position: absolute; top: 12px; right: 12px; z-index: 1000;
+      display: flex; gap: 8px;
+    }
+    .leaflet-popup-content-wrapper {
+      background: rgba(17,24,39,0.95) !important;
+      color: #f1f5f9 !important;
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 8px !important;
+      box-shadow: 0 10px 40px rgba(0,0,0,0.5) !important;
+    }
+    .leaflet-popup-tip { background: rgba(17,24,39,0.95) !important; }
+    .leaflet-popup-content { font-family: 'Inter', sans-serif; font-size: 12px; margin: 10px 14px !important; }
+    .popup-title { font-weight: 600; font-size: 13px; margin-bottom: 6px; }
+    .popup-row { display: flex; justify-content: space-between; gap: 12px; margin: 3px 0; }
+    .popup-label { color: #94a3b8; }
+    .popup-val { font-family: 'JetBrains Mono', monospace; font-weight: 500; }
+  </style>
+</head>
+<body>
+  <header class="app-header">
+    <div class="app-logo">
+      <div class="icon">&#9733;</div>
+      NCPS
+    </div>
+    <nav class="nav-links">
+      <a href="/">Dashboard</a>
+      <a href="/map.html" class="active">Map</a>
+      <a href="/compare.html">Compare</a>
+    </nav>
+    <div class="header-controls">
+      <select id="scenario-select">
+        <option value="attack">Coordinated Attack</option>
+        <option value="baseline">Honest Baseline</option>
+      </select>
+      <button class="btn btn-primary" id="run-btn" onclick="loadMap()">
+        <span id="run-text">&#9654; Load Map</span>
+      </button>
+    </div>
+  </header>
+
+  <div style="position:relative">
+    <div id="map"></div>
+
+    <!-- Legend -->
+    <div class="map-legend">
+      <h4>Legend</h4>
+      <div class="legend-item">
+        <div class="legend-dot" style="background:#10b981"></div>
+        <span style="font-size:11px;color:var(--text-secondary)">Honest User</span>
+      </div>
+      <div class="legend-item">
+        <div class="legend-dot" style="background:#ef4444"></div>
+        <span style="font-size:11px;color:var(--text-secondary)">Bot User</span>
+      </div>
+      <div class="legend-item">
+        <div class="legend-dot" style="background:#f59e0b"></div>
+        <span style="font-size:11px;color:var(--text-secondary)">Adversarial</span>
+      </div>
+      <div class="legend-item">
+        <div class="legend-dot" style="background:#64748b"></div>
+        <span style="font-size:11px;color:var(--text-secondary)">Noisy</span>
+      </div>
+      <div class="legend-item" style="margin-top:6px">
+        <div class="legend-dot" style="background:#3b82f6;width:12px;height:12px"></div>
+        <span style="font-size:11px;color:var(--text-secondary)">Post (sized by credibility)</span>
+      </div>
+      <div class="legend-item">
+        <div class="legend-dot" style="background:transparent;border:2px solid rgba(59,130,246,0.3);width:12px;height:12px"></div>
+        <span style="font-size:11px;color:var(--text-secondary)">Propagation Radius</span>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const API = window.location.origin;
+
+    // Initialize map
+    const map = L.map('map', {
+      center: [28.6139, 77.2090],
+      zoom: 12,
+      zoomControl: true,
+    });
+
+    // Dark tile layer (CartoDB Dark Matter)
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+      attribution: '&copy; OpenStreetMap contributors &copy; CARTO',
+      subdomains: 'abcd',
+      maxZoom: 19,
+    }).addTo(map);
+
+    // Remove the CSS filter since CartoDB Dark Matter is already dark
+    document.querySelector('.leaflet-tile-pane').style.filter = 'none';
+
+    let userMarkers = L.layerGroup().addTo(map);
+    let postMarkers = L.layerGroup().addTo(map);
+    let radiusCircles = L.layerGroup().addTo(map);
+
+    async function loadMap() {
+      const btn = document.getElementById('run-btn');
+      const runText = document.getElementById('run-text');
+      btn.disabled = true;
+      runText.innerHTML = '&#9203; Loading...';
+
+      const scenario = document.getElementById('scenario-select').value;
+
+      try {
+        const res = await fetch(API + '/api/simulation/run', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ scenario, phase: 6 }),
+        });
+        const data = await res.json();
+        renderMap(data);
+      } catch (e) {
+        console.error('Failed to load map data:', e);
+        alert('Failed: ' + e.message);
+      }
+
+      btn.disabled = false;
+      runText.innerHTML = '&#9654; Load Map';
+    }
+
+    function renderMap(data) {
+      // Clear existing
+      userMarkers.clearLayers();
+      postMarkers.clearLayers();
+      radiusCircles.clearLayers();
+
+      const bounds = [];
+
+      // Users
+      data.users.forEach(u => {
+        if (!u.lat || !u.lon) return;
+        const color = u.type === 'bot' ? '#ef4444' : u.type === 'adversarial' ? '#f59e0b' :
+                      u.type === 'honest' ? '#10b981' : '#64748b';
+        const radius = 4 + u.weight * 6;
+
+        const marker = L.circleMarker([u.lat, u.lon], {
+          radius: radius,
+          fillColor: color,
+          fillOpacity: 0.7 + u.location_confidence * 0.3,
+          color: u.trust > 0.5 ? '#3b82f6' : 'rgba(255,255,255,0.1)',
+          weight: 1.5,
+        });
+
+        marker.bindPopup(
+          '<div class="popup-title" style="color:' + color + '">User ' + u.id + ' (' + u.type + ')</div>' +
+          '<div class="popup-row"><span class="popup-label">Weight</span><span class="popup-val">' + u.weight.toFixed(3) + '</span></div>' +
+          '<div class="popup-row"><span class="popup-label">Trust</span><span class="popup-val">' + u.trust.toFixed(3) + '</span></div>' +
+          '<div class="popup-row"><span class="popup-label">Anomaly</span><span class="popup-val">' + u.anomaly.toFixed(3) + '</span></div>' +
+          '<div class="popup-row"><span class="popup-label">Location Conf</span><span class="popup-val">' + u.location_confidence.toFixed(3) + '</span></div>' +
+          '<div class="popup-row"><span class="popup-label">Coordination</span><span class="popup-val">' + (u.coordination || 0).toFixed(3) + '</span></div>'
+        );
+
+        userMarkers.addLayer(marker);
+        bounds.push([u.lat, u.lon]);
+      });
+
+      // Posts
+      data.posts.forEach(p => {
+        if (!p.lat || !p.lon) return;
+        const credColor = p.credibility >= 0.7 ? '#10b981' : p.credibility >= 0.4 ? '#f59e0b' : '#ef4444';
+        const postRadius = 6 + p.credibility * 6;
+
+        const marker = L.circleMarker([p.lat, p.lon], {
+          radius: postRadius,
+          fillColor: '#3b82f6',
+          fillOpacity: 0.5 + p.credibility * 0.4,
+          color: credColor,
+          weight: 2,
+        });
+
+        marker.bindPopup(
+          '<div class="popup-title" style="color:#3b82f6">Post ' + p.id + '</div>' +
+          '<div style="font-size:11px;color:#94a3b8;margin-bottom:6px">' + (p.content || '').substring(0, 60) + '...</div>' +
+          '<div class="popup-row"><span class="popup-label">Label</span><span class="popup-val" style="color:' + (p.label === 'TRUE' ? '#10b981' : '#ef4444') + '">' + p.label + '</span></div>' +
+          '<div class="popup-row"><span class="popup-label">Credibility</span><span class="popup-val" style="color:' + credColor + '">' + p.credibility.toFixed(3) + '</span></div>' +
+          '<div class="popup-row"><span class="popup-label">Variance</span><span class="popup-val">' + p.variance.toFixed(3) + '</span></div>' +
+          '<div class="popup-row"><span class="popup-label">Votes</span><span class="popup-val">' + p.n_effective.toFixed(1) + '</span></div>'
+        );
+
+        postMarkers.addLayer(marker);
+        bounds.push([p.lat, p.lon]);
+
+        // Propagation radius circle (simulated)
+        const propRadius = 500 + p.credibility * 2000;
+        const circle = L.circle([p.lat, p.lon], {
+          radius: propRadius,
+          fillColor: '#3b82f6',
+          fillOpacity: 0.04,
+          color: 'rgba(59,130,246,0.2)',
+          weight: 1,
+          dashArray: '4 4',
+        });
+        radiusCircles.addLayer(circle);
+      });
+
+      // Fit bounds
+      if (bounds.length > 0) {
+        map.fitBounds(bounds, { padding: [30, 30], maxZoom: 14 });
+      }
+    }
+  </script>
+</body>
+</html>

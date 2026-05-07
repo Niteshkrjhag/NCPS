@@ -11,7 +11,8 @@ Source: docs/context/mathematical_formula.md (Proximity formula)
 from __future__ import annotations
 
 import math
-
+from dataclasses import dataclass
+from datetime import datetime
 
 from app.config import config
 
@@ -112,3 +113,195 @@ def compute_spatial_trust(
 
     result = numerator / denominator
     return min(max(result, 0.0), 1.0)
+
+
+# ──────────────────────────────────────────────────────────
+# Phase 4: Location Confidence L_i(t)
+# Source: phase4_system_design.md §4.2
+# ──────────────────────────────────────────────────────────
+
+@dataclass
+class LocationRecord:
+    """A single location reading for a user."""
+
+    lat: float
+    lon: float
+    timestamp: datetime
+    accuracy_meters: float = 50.0   # GPS accuracy
+    source: str = "gps"             # "gps" or "ip"
+
+
+def compute_location_confidence(
+    location_history: list[LocationRecord],
+) -> float:
+    """
+    L_i(t) = w₁·S_gps + w₂·S_speed + w₃·S_source + w₄·S_cont
+
+    Source: phase4_system_design.md §4.2
+
+    Components:
+      S_gps:    GPS accuracy score (better accuracy → higher)
+      S_speed:  Speed plausibility (no teleportation → higher)
+      S_source: Source quality (GPS > IP)
+      S_cont:   Location continuity (stable → higher)
+
+    Args:
+        location_history: Chronologically ordered location readings.
+
+    Returns:
+        Location confidence ∈ [0, 1].
+    """
+    if not location_history:
+        return 0.0
+
+    if len(location_history) == 1:
+        # Single reading: can only assess GPS accuracy and source
+        rec = location_history[0]
+        s_gps = _gps_accuracy_score(rec.accuracy_meters)
+        s_source = 1.0 if rec.source == "gps" else 0.3
+        # No speed or continuity data with single reading
+        weights = config.location_confidence_weights
+        return min(max(weights[0] * s_gps + weights[2] * s_source, 0.0), 1.0)
+
+    # Sort by time
+    sorted_locs = sorted(location_history, key=lambda r: r.timestamp)
+
+    # S_gps: Average GPS accuracy score
+    s_gps = sum(_gps_accuracy_score(r.accuracy_meters) for r in sorted_locs) / len(sorted_locs)
+
+    # S_speed: Fraction of movements with plausible speed
+    plausible_count = 0
+    total_movements = 0
+    for i in range(1, len(sorted_locs)):
+        dt = (sorted_locs[i].timestamp - sorted_locs[i - 1].timestamp).total_seconds()
+        if dt < 1.0:
+            continue  # Skip near-simultaneous readings
+        dist = haversine_distance(
+            sorted_locs[i - 1].lat, sorted_locs[i - 1].lon,
+            sorted_locs[i].lat, sorted_locs[i].lon,
+        )
+        speed = dist / dt
+        total_movements += 1
+        if speed <= config.location_speed_max:
+            plausible_count += 1
+    s_speed = plausible_count / max(total_movements, 1)
+
+    # S_source: Fraction of GPS-sourced readings
+    gps_count = sum(1 for r in sorted_locs if r.source == "gps")
+    s_source = gps_count / len(sorted_locs)
+
+    # S_cont: Location continuity — how stable is the user's position?
+    # Measure: avg distance between consecutive readings within continuity window
+    continuity_distances = []
+    window = config.location_continuity_window
+    for i in range(1, len(sorted_locs)):
+        dt = (sorted_locs[i].timestamp - sorted_locs[i - 1].timestamp).total_seconds()
+        if dt <= window:
+            dist = haversine_distance(
+                sorted_locs[i - 1].lat, sorted_locs[i - 1].lon,
+                sorted_locs[i].lat, sorted_locs[i].lon,
+            )
+            continuity_distances.append(dist)
+    if continuity_distances:
+        avg_drift = sum(continuity_distances) / len(continuity_distances)
+        # Normalize: 0m → 1.0, >5000m → 0.0
+        s_cont = max(0.0, 1.0 - avg_drift / config.spatial_sigma_p)
+    else:
+        s_cont = 0.5  # Insufficient data
+
+    # Weighted combination
+    weights = config.location_confidence_weights
+    l_i = (
+        weights[0] * s_gps
+        + weights[1] * s_speed
+        + weights[2] * s_source
+        + weights[3] * s_cont
+    )
+
+    return min(max(l_i, 0.0), 1.0)
+
+
+def _gps_accuracy_score(accuracy_meters: float) -> float:
+    """Convert GPS accuracy in meters to a score in [0, 1]."""
+    threshold = config.location_gps_accuracy_threshold
+    if accuracy_meters <= 0:
+        return 1.0
+    return min(max(1.0 - accuracy_meters / (threshold * 2), 0.0), 1.0)
+
+
+def compute_location_inconsistency(
+    location_history: list[LocationRecord],
+) -> float:
+    """
+    D_5(i,t) = N_implausible / N_movements
+
+    Fraction of location transitions that are physically implausible
+    (speed exceeds maximum plausible speed).
+
+    Source: mathematical_formula.md — Formula 3, component D_5
+
+    Args:
+        location_history: Chronologically ordered location readings.
+
+    Returns:
+        Location inconsistency ∈ [0, 1]. Higher = more suspicious.
+    """
+    if len(location_history) < 2:
+        return 0.0
+
+    sorted_locs = sorted(location_history, key=lambda r: r.timestamp)
+
+    implausible = 0
+    total = 0
+    for i in range(1, len(sorted_locs)):
+        dt = (sorted_locs[i].timestamp - sorted_locs[i - 1].timestamp).total_seconds()
+        if dt < 1.0:
+            continue
+        dist = haversine_distance(
+            sorted_locs[i - 1].lat, sorted_locs[i - 1].lon,
+            sorted_locs[i].lat, sorted_locs[i].lon,
+        )
+        speed = dist / dt
+        total += 1
+        if speed > config.location_speed_max:
+            implausible += 1
+
+    if total == 0:
+        return 0.0
+
+    return implausible / total
+
+
+# ──────────────────────────────────────────────────────────
+# Phase 4: Post Location Estimation
+# Source: phase4_system_design.md §5
+# ──────────────────────────────────────────────────────────
+
+def estimate_post_location(
+    voter_lats: list[float],
+    voter_lons: list[float],
+    voter_weights: list[float],
+) -> tuple[float, float]:
+    """
+    Estimate post location as weighted average of voter locations.
+
+    Fallback strategy from phase4_system_design.md §5:
+        l_j = weighted avg of user locations
+
+    Args:
+        voter_lats: Latitude of each voter.
+        voter_lons: Longitude of each voter.
+        voter_weights: w_i for each voter.
+
+    Returns:
+        (estimated_lat, estimated_lon)
+    """
+    if not voter_lats:
+        return 0.0, 0.0
+
+    total_weight = sum(voter_weights) + config.epsilon
+    est_lat = sum(w * lat for w, lat in zip(voter_weights, voter_lats)) / total_weight
+    est_lon = sum(w * lon for w, lon in zip(voter_weights, voter_lons)) / total_weight
+
+    return est_lat, est_lon
+

@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NCPS — Post Detail</title>
+  <meta name="description" content="NCPS Post Intelligence — Credibility decomposition and signal analysis">
+  <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+  <header class="app-header">
+    <div class="app-logo">
+      <div class="icon">&#9733;</div>
+      NCPS
+    </div>
+    <nav class="nav-links">
+      <a href="/">Dashboard</a>
+      <a href="/map.html">Map</a>
+      <a href="/compare.html">Compare</a>
+    </nav>
+  </header>
+
+  <div class="detail-container">
+    <div class="detail-header">
+      <a href="/">&larr; Back to Dashboard</a>
+      <h1 style="margin-top:12px;font-size:22px;" id="post-title">Post Detail</h1>
+      <p class="text-muted" style="font-size:13px;" id="post-subtitle"></p>
+    </div>
+
+    <div id="post-content-area">
+      <div class="loading" style="padding:80px 0">
+        <div class="spinner"></div>
+        <span>Select a post from the dashboard</span>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const params = new URLSearchParams(window.location.search);
+    const postData = params.get('data');
+
+    if (postData) {
+      try {
+        const post = JSON.parse(decodeURIComponent(postData));
+        renderPost(post);
+      } catch (e) {
+        console.error('Failed to parse post data:', e);
+      }
+    }
+
+    function renderPost(p) {
+      document.title = 'NCPS — Post ' + p.id;
+      document.getElementById('post-title').textContent = 'Post ' + p.id;
+
+      const labelColor = p.label === 'TRUE' ? '#10b981' : p.label === 'FALSE' ? '#ef4444' : '#f59e0b';
+      const labelBadge = p.label === 'TRUE' ? 'badge-green' : p.label === 'FALSE' ? 'badge-red' : 'badge-yellow';
+      document.getElementById('post-subtitle').innerHTML =
+        'Ground Truth: <span class="badge ' + labelBadge + '">' + p.label + '</span>' +
+        ' &nbsp;|&nbsp; Location: (' + (p.lat || 0).toFixed(4) + ', ' + (p.lon || 0).toFixed(4) + ')';
+
+      let html = '';
+
+      // Content card
+      html += '<div class="panel animate-in"><div class="panel-header"><span class="panel-title">Content</span></div>';
+      html += '<div class="panel-body" style="font-size:14px;line-height:1.7;color:var(--text-secondary)">' + escapeHtml(p.content) + '</div>';
+      html += '</div>';
+
+      // Credibility + Metrics grid
+      html += '<div class="detail-grid mt-16">';
+
+      // Left: Credibility Breakdown
+      html += '<div class="panel animate-in" style="animation-delay:0.1s"><div class="panel-header"><span class="panel-title">Credibility Breakdown</span></div>';
+      html += '<div class="panel-body">';
+
+      // C_final with big number
+      html += '<div style="text-align:center;margin-bottom:16px">';
+      html += '<div style="font-size:48px;font-weight:700;font-family:JetBrains Mono,monospace;color:' + scoreColor(p.credibility) + '">' + p.credibility.toFixed(3) + '</div>';
+      html += '<div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px">Final Credibility (C_final)</div>';
+      html += '<div class="cred-bar mt-8" style="height:8px"><div class="cred-bar-fill" style="width:' + (p.credibility * 100) + '%;background:' + scoreColor(p.credibility) + '"></div></div>';
+      html += '</div>';
+
+      // Decomposition bars
+      const hasMl = p.c_ml !== null && p.c_ml !== undefined;
+      html += renderSignalBar('C_Bayes (voting)', p.c_bayes, scoreColor(p.c_bayes));
+      if (hasMl) {
+        html += renderSignalBar('C_ML (model)', p.c_ml, scoreColor(p.c_ml));
+      }
+
+      // Formula explanation
+      html += '<div style="margin-top:12px;padding:10px;background:var(--bg-glass);border-radius:var(--radius-sm);font-size:11px;color:var(--text-secondary);line-height:1.6">';
+      if (hasMl) {
+        html += '<strong style="color:var(--text-primary)">C_final</strong> = (1 &minus; &alpha; &minus; &gamma;) &times; C_Bayes + &alpha; &times; C_ML + &gamma; &times; C_memory';
+      } else {
+        html += '<strong style="color:var(--text-primary)">C_final</strong> = C_Bayes (ML not active for this phase)';
+      }
+      html += '</div>';
+      html += '</div></div>';
+
+      // Right: Post Metrics
+      html += '<div class="panel animate-in" style="animation-delay:0.15s"><div class="panel-header"><span class="panel-title">Post Metrics</span></div>';
+      html += '<div class="panel-body">';
+      html += renderSignalBar('Variance (Var_j)', Math.min(p.variance, 1), scoreColor(1 - Math.min(p.variance, 1)));
+      html += renderSignalBar('Effective Votes (N_j)', Math.min(p.n_effective / 20, 1), '#3b82f6');
+
+      // Stability assessment
+      const isStable = p.variance < 0.1;
+      html += '<div style="margin-top:16px;padding:10px;border-radius:var(--radius-sm);border:1px solid var(--border-glass);display:flex;align-items:center;gap:10px">';
+      html += '<div style="width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:16px;background:' + (isStable ? 'rgba(16,185,129,0.15)' : 'rgba(245,158,11,0.15)') + '">';
+      html += isStable ? '&#10003;' : '&#9888;';
+      html += '</div>';
+      html += '<div>';
+      html += '<div style="font-size:12px;font-weight:600;color:' + (isStable ? '#10b981' : '#f59e0b') + '">' + (isStable ? 'Stable' : 'Unstable') + '</div>';
+      html += '<div style="font-size:10px;color:var(--text-muted)">Variance ' + (isStable ? 'below' : 'above') + ' threshold (0.1)</div>';
+      html += '</div></div>';
+
+      // N_effective raw value
+      html += '<div style="margin-top:12px;display:flex;gap:12px">';
+      html += metricMini('N_j', p.n_effective.toFixed(1), '#3b82f6');
+      html += metricMini('Var_j', p.variance.toFixed(3), scoreColor(1 - Math.min(p.variance, 1)));
+      html += '</div>';
+
+      html += '</div></div>';
+      html += '</div>'; // close detail-grid
+
+      // Decision Trace
+      html += '<div class="panel mt-16 animate-in" style="animation-delay:0.25s"><div class="panel-header"><span class="panel-title">Decision Trace — Why This Score?</span></div>';
+      html += '<div class="panel-body">';
+      html += '<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;font-size:12px">';
+      html += traceStep('Votes Received', p.n_effective.toFixed(1) + ' effective');
+      html += traceArrow();
+      html += traceStep('Bayesian Credibility', p.c_bayes.toFixed(3));
+      if (hasMl) {
+        html += traceArrow();
+        html += traceStep('ML Prediction', p.c_ml.toFixed(3));
+        html += traceArrow();
+        html += traceStep('Blended', p.credibility.toFixed(3));
+      }
+      html += traceArrow();
+      html += traceStep('Variance Check', isStable ? '&#10003; Stable' : '&#9888; Unstable');
+      html += traceArrow();
+      const decision = p.credibility >= 0.5 ? 'CREDIBLE' : 'NOT CREDIBLE';
+      const decisionColor = p.credibility >= 0.5 ? '#10b981' : '#ef4444';
+      html += '<div style="padding:8px 16px;background:' + decisionColor + '22;border:1px solid ' + decisionColor + '44;border-radius:var(--radius-sm);color:' + decisionColor + ';font-weight:700;font-size:13px">' + decision + '</div>';
+      html += '</div></div></div>';
+
+      document.getElementById('post-content-area').innerHTML = html;
+    }
+
+    function traceStep(label, value) {
+      return '<div style="padding:8px 12px;background:var(--bg-glass);border:1px solid var(--border-glass);border-radius:var(--radius-sm);text-align:center">' +
+        '<div style="font-size:10px;color:var(--text-muted)">' + label + '</div>' +
+        '<div class="mono" style="font-size:13px;margin-top:2px">' + value + '</div></div>';
+    }
+
+    function traceArrow() {
+      return '<span style="color:var(--text-muted);font-size:16px">&rarr;</span>';
+    }
+
+    function metricMini(label, value, color) {
+      return '<div style="flex:1;text-align:center;padding:10px;background:var(--bg-glass);border-radius:var(--radius-sm)">' +
+        '<div class="mono" style="font-size:18px;color:' + color + '">' + value + '</div>' +
+        '<div style="font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.3px;margin-top:2px">' + label + '</div></div>';
+    }
+
+    function renderSignalBar(name, value, color) {
+      const pct = Math.max(0, Math.min(100, value * 100));
+      return '<div class="signal-bar">' +
+        '<span class="signal-name">' + name + '</span>' +
+        '<div class="signal-track"><div class="signal-fill" style="width:' + pct + '%;background:' + color + ';"></div></div>' +
+        '<span class="signal-value" style="color:' + color + '">' + value.toFixed(3) + '</span></div>';
+    }
+
+    function scoreColor(v) {
+      if (v >= 0.7) return '#10b981';
+      if (v >= 0.4) return '#f59e0b';
+      return '#ef4444';
+    }
+
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+  </script>
+</body>
+</html>

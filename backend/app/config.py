@@ -70,9 +70,9 @@ class NCPSConfig(BaseSettings):
         "[burst, entropy, consensus, coordination, location].",
     )
     anomaly_beta: float = Field(
-        default=0.0,
+        default=0.25,
         description="Blend factor between rule-based and ML anomaly (β). "
-        "0.0 = pure rule-based (Phase 1 MVP).",
+        "0.25 = 75% rule-based + 25% ML (Phase 5).",
     )
 
     # ──────────────────────────────────────────────
@@ -107,12 +107,14 @@ class NCPSConfig(BaseSettings):
     # Final Credibility C_final
     # ──────────────────────────────────────────────
     credibility_alpha_ml: float = Field(
-        default=0.0,
-        description="Weight for ML credibility (α). 0.0 in Phase 1.",
+        default=0.15,
+        description="Weight for ML credibility (α). "
+        "0.15 in Phase 5: ML supplements but does not replace crowd evidence.",
     )
     credibility_gamma_memory: float = Field(
-        default=0.0,
-        description="Weight for memory credibility (γ). 0.0 in Phase 1.",
+        default=0.10,
+        description="Weight for memory credibility (γ). "
+        "0.10 in Phase 5: mild nudge from historical similarity.",
     )
 
     # ──────────────────────────────────────────────
@@ -263,6 +265,80 @@ class NCPSConfig(BaseSettings):
     graph_coordination_threshold: float = Field(
         default=0.7,
         description="Similarity threshold above which coordination is suspected.",
+    )
+
+    # ──────────────────────────────────────────────
+    # Phase 5: ML Augmentation
+    # Source: docs/context/phase5_system_design.md
+    # ──────────────────────────────────────────────
+    memory_top_k: int = Field(
+        default=5,
+        description="Number of similar past posts to retrieve for C_memory. "
+        "5 is standard for nearest-neighbor — enough signal without noise.",
+    )
+    ml_temperature: float = Field(
+        default=1.5,
+        description="Temperature for ML credibility calibration. "
+        ">1 softens predictions toward 0.5, preventing overconfident ML. "
+        "1.5 is conservative for potentially miscalibrated models.",
+    )
+
+    # ──────────────────────────────────────────────
+    # Phase 4: Spatial-Aware Trust
+    # Source: docs/context/phase4_system_design.md
+    # ──────────────────────────────────────────────
+    location_confidence_weights: list[float] = Field(
+        default=[0.3, 0.25, 0.25, 0.2],
+        description="Weights [w₁, w₂, w₃, w₄] for location confidence: "
+        "[gps_accuracy, speed_plausibility, source_quality, continuity].",
+    )
+    location_speed_max: float = Field(
+        default=340.0,
+        description="Maximum plausible speed (m/s). ~340 m/s ≈ speed of sound. "
+        "Movements faster than this are flagged as implausible.",
+    )
+    location_continuity_window: float = Field(
+        default=600.0,
+        description="Time window (seconds) for location continuity check. "
+        "Locations within this window are expected to be consistent.",
+    )
+    location_gps_accuracy_threshold: float = Field(
+        default=100.0,
+        description="GPS accuracy threshold (meters). "
+        "Readings with accuracy worse than this get reduced confidence.",
+    )
+
+    # ──────────────────────────────────────────────
+    # Phase 6: Extended Signal Computation
+    # Source: docs/context/input_signal.md signals 10-14
+    # ──────────────────────────────────────────────
+    signal_nav_kappa: float = Field(
+        default=2.0,
+        description="Navigation deviation scale (κ). JS-divergence mapped through exp(-D/κ).",
+    )
+    signal_session_delta: float = Field(
+        default=1.5,
+        description="Session continuity sensitivity (δ). Controls penalty for deviation from human baseline.",
+    )
+    signal_session_gap: float = Field(
+        default=300.0,
+        description="Session gap threshold (seconds). Gaps > this start a new session.",
+    )
+    signal_session_mu_human: float = Field(
+        default=600.0,
+        description="Expected human session duration (seconds). 10 minutes.",
+    )
+    signal_session_sigma_human: float = Field(
+        default=300.0,
+        description="Expected human session std (seconds). 5 minutes.",
+    )
+    signal_timing_sigma_sq: float = Field(
+        default=100.0,
+        description="Vote timing variance normalization (σ_t²). Seconds².",
+    )
+    signal_timing_b0: float = Field(
+        default=5.0,
+        description="Burstiness normalization (B_0). Burst ratio > 5× is suspicious.",
     )
 
     # ──────────────────────────────────────────────

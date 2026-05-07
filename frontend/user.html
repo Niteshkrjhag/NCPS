@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NCPS — User Profile</title>
+  <meta name="description" content="NCPS User Intelligence — Detailed trust, reliability, anomaly, and coordination analysis">
+  <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+  <header class="app-header">
+    <div class="app-logo">
+      <div class="icon">&#9733;</div>
+      NCPS
+    </div>
+    <nav class="nav-links">
+      <a href="/">Dashboard</a>
+      <a href="/map.html">Map</a>
+      <a href="/compare.html">Compare</a>
+    </nav>
+  </header>
+
+  <div class="detail-container">
+    <div class="detail-header">
+      <a href="/">&larr; Back to Dashboard</a>
+      <h1 style="margin-top:12px;font-size:22px;" id="user-title">User Profile</h1>
+      <p class="text-muted" style="font-size:13px;" id="user-subtitle"></p>
+    </div>
+
+    <div id="user-content">
+      <div class="loading" style="padding:80px 0">
+        <div class="spinner"></div>
+        <span>Select a user from the dashboard</span>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const params = new URLSearchParams(window.location.search);
+    const userData = params.get('data');
+
+    if (userData) {
+      try {
+        const user = JSON.parse(decodeURIComponent(userData));
+        renderUser(user);
+      } catch (e) {
+        console.error('Failed to parse user data:', e);
+      }
+    }
+
+    function renderUser(u) {
+      document.title = 'NCPS — User ' + u.id;
+      document.getElementById('user-title').textContent = 'User ' + u.id;
+
+      const typeColor = getTypeColor(u.type);
+      document.getElementById('user-subtitle').innerHTML =
+        'Type: <span style="color:' + typeColor + ';font-weight:600">' + u.type.toUpperCase() + '</span>' +
+        ' &nbsp;|&nbsp; Location: (' + (u.lat || 0).toFixed(4) + ', ' + (u.lon || 0).toFixed(4) + ')';
+
+      // Core signals
+      const coreSignals = [
+        { name: 'Reliability (R*)', value: u.reliability, color: scoreColor(u.reliability) },
+        { name: 'Experience (Exp)', value: u.experience, color: scoreColor(u.experience) },
+        { name: 'Trust (T_i)', value: u.trust, color: scoreColor(u.trust) },
+        { name: 'Anomaly (Anom)', value: u.anomaly, color: scoreColor(1 - u.anomaly) },
+        { name: 'Final Weight (w_i)', value: u.weight, color: scoreColor(u.weight) },
+        { name: 'Location Conf (L_i)', value: u.location_confidence, color: scoreColor(u.location_confidence) },
+        { name: 'Coordination (S_coord)', value: u.coordination, color: scoreColor(1 - u.coordination) },
+      ];
+
+      // Extended signals
+      const extSignals = [];
+      if (u.signals && Object.keys(u.signals).length > 0) {
+        extSignals.push(
+          { name: 'Device Consistency', value: u.signals.device || 1.0, color: scoreColor(u.signals.device || 1.0) },
+          { name: 'IP Consistency', value: u.signals.ip || 1.0, color: scoreColor(u.signals.ip || 1.0) },
+          { name: 'Session Continuity', value: u.signals.session || 1.0, color: scoreColor(u.signals.session || 1.0) },
+          { name: 'Timing Pattern', value: u.signals.timing || 1.0, color: scoreColor(u.signals.timing || 1.0) },
+          { name: 'Navigation Dev', value: u.signals.navigation || 0, color: scoreColor(1 - (u.signals.navigation || 0)) },
+        );
+      }
+
+      let html = '<div class="detail-grid">';
+
+      // Left: Core signals
+      html += '<div class="panel animate-in"><div class="panel-header"><span class="panel-title">Core Signals (Formulas 1-9)</span></div>';
+      html += '<div class="panel-body">';
+      coreSignals.forEach(s => { html += renderSignalBar(s.name, s.value, s.color); });
+      html += '</div></div>';
+
+      // Right: Extended signals or summary
+      if (extSignals.length > 0) {
+        html += '<div class="panel animate-in" style="animation-delay:0.1s"><div class="panel-header"><span class="panel-title">Extended Signals (10-14)</span></div>';
+        html += '<div class="panel-body">';
+        extSignals.forEach(s => { html += renderSignalBar(s.name, s.value, s.color); });
+        html += '</div></div>';
+      } else {
+        html += '<div class="panel animate-in" style="animation-delay:0.1s"><div class="panel-header"><span class="panel-title">Summary</span></div>';
+        html += '<div class="panel-body" style="display:flex;flex-direction:column;gap:14px;justify-content:center;align-items:center;padding:24px">';
+        html += '<div style="font-size:48px;font-weight:700;font-family:JetBrains Mono,monospace;color:' + scoreColor(u.weight) + '">' + u.weight.toFixed(3) + '</div>';
+        html += '<div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px">Final Weight</div>';
+        html += '<div style="font-size:11px;color:var(--text-secondary);line-height:1.6;text-align:center;margin-top:8px">';
+        html += 'w_i = T_i &times; (1 &minus; Anom_i) &times; Exp_i<br>';
+        html += '<span class="mono" style="font-size:12px">' + u.trust.toFixed(3) + ' &times; ' + (1 - u.anomaly).toFixed(3) + ' &times; ' + u.experience.toFixed(3) + '</span>';
+        html += '</div></div></div>';
+      }
+
+      html += '</div>'; // close detail-grid
+
+      // Full width: Weight Decomposition
+      html += '<div class="panel mt-16 animate-in" style="animation-delay:0.2s"><div class="panel-header"><span class="panel-title">Weight Decomposition</span></div>';
+      html += '<div class="panel-body"><div class="decomp-row">';
+      html += decompCard('T_i', u.trust, scoreColor(u.trust));
+      html += '<span class="decomp-op">&times;</span>';
+      html += decompCard('1 &minus; Anom', 1 - u.anomaly, scoreColor(1 - u.anomaly));
+      html += '<span class="decomp-op">&times;</span>';
+      html += decompCard('Exp_i', u.experience, scoreColor(u.experience));
+      html += '<span class="decomp-op">=</span>';
+      html += decompCard('w_i', u.weight, scoreColor(u.weight), true);
+      html += '</div></div></div>';
+
+      // Trust Propagation: R* → T_i
+      html += '<div class="detail-grid mt-16">';
+      html += '<div class="panel animate-in" style="animation-delay:0.3s"><div class="panel-header"><span class="panel-title">Trust Propagation (R* &rarr; T_i)</span></div>';
+      html += '<div class="panel-body" style="display:flex;align-items:center;gap:20px;justify-content:center;padding:20px">';
+      html += '<div style="text-align:center">';
+      html += '<div class="mono" style="font-size:24px;color:' + scoreColor(u.reliability) + '">' + u.reliability.toFixed(3) + '</div>';
+      html += '<div style="font-size:10px;color:var(--text-muted);margin-top:4px">Base R*</div>';
+      html += '</div>';
+      html += '<div style="font-size:20px;color:var(--text-muted)">&rarr;</div>';
+      html += '<div style="text-align:center">';
+      const trustDelta = u.trust - u.reliability;
+      const deltaColor = trustDelta >= 0 ? '#10b981' : '#ef4444';
+      const deltaSign = trustDelta >= 0 ? '+' : '';
+      html += '<div class="mono" style="font-size:24px;color:' + scoreColor(u.trust) + '">' + u.trust.toFixed(3) + '</div>';
+      html += '<div style="font-size:10px;color:var(--text-muted);margin-top:4px">Graph Trust T_i</div>';
+      html += '<div style="font-size:10px;color:' + deltaColor + ';margin-top:2px">' + deltaSign + trustDelta.toFixed(3) + '</div>';
+      html += '</div></div></div>';
+
+      // Anomaly Breakdown
+      html += '<div class="panel animate-in" style="animation-delay:0.35s"><div class="panel-header"><span class="panel-title">Anomaly Signals</span></div>';
+      html += '<div class="panel-body">';
+      html += renderSignalBar('Coordination (D4)', u.coordination || 0, scoreColor(1 - (u.coordination || 0)));
+      html += renderSignalBar('Location Incon (D5)', u.location_inconsistency || 0, scoreColor(1 - (u.location_inconsistency || 0)));
+      html += renderSignalBar('Combined Anomaly', u.anomaly, scoreColor(1 - u.anomaly));
+      html += '</div></div>';
+      html += '</div>'; // close detail-grid
+
+      document.getElementById('user-content').innerHTML = html;
+    }
+
+    function decompCard(label, value, color, isResult) {
+      const cls = isResult ? 'decomp-card result' : 'decomp-card';
+      const size = isResult ? '28px' : '22px';
+      return '<div class="' + cls + '"><div class="decomp-val" style="font-size:' + size + ';color:' + color + '">' + value.toFixed(3) + '</div><div class="decomp-label">' + label + '</div></div>';
+    }
+
+    function renderSignalBar(name, value, color) {
+      const pct = Math.max(0, Math.min(100, value * 100));
+      return '<div class="signal-bar">' +
+        '<span class="signal-name">' + name + '</span>' +
+        '<div class="signal-track"><div class="signal-fill" style="width:' + pct + '%;background:' + color + ';"></div></div>' +
+        '<span class="signal-value" style="color:' + color + '">' + value.toFixed(3) + '</span>' +
+        '</div>';
+    }
+
+    function scoreColor(v) {
+      if (v >= 0.7) return '#10b981';
+      if (v >= 0.4) return '#f59e0b';
+      return '#ef4444';
+    }
+
+    function getTypeColor(type) {
+      return type === 'bot' ? '#ef4444' : type === 'adversarial' ? '#f59e0b' :
+             type === 'honest' ? '#10b981' : '#94a3b8';
+    }
+  </script>
+</body>
+</html>

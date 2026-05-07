@@ -2,11 +2,13 @@
 Simulation Engine — Synthetic Data Generator.
 
 Source: docs/context/simulation_evaluation_framework.md §3–4
+        docs/context/phase4_system_design.md §4–5
 
 Generates:
   - Synthetic users (honest, noisy, adversarial, bot)
   - Synthetic posts (true, false, ambiguous)
   - Simulated interactions (votes with timing patterns)
+  - Location histories with spoofing patterns (Phase 4)
 """
 
 from __future__ import annotations
@@ -46,6 +48,7 @@ class SimulatedUser:
     rate: float = 1.0            # Actions per minute
     entropy: float = 0.8         # Action diversity
     coord_group: int | None = None  # Group for coordination
+    location_spoofing: bool = False  # Phase 4: does user spoof location?
     lat: float = 0.0
     lon: float = 0.0
 
@@ -87,13 +90,14 @@ class SimulatedUser:
 
     @classmethod
     def bot(cls, group: int, lat: float = 0.0, lon: float = 0.0) -> SimulatedUser:
-        """Create a bot user (high rate, low entropy, coordinated)."""
+        """Create a bot user (high rate, low entropy, coordinated, location spoofing)."""
         return cls(
             user_type=UserType.BOT,
             p_correct=0.1,
             rate=random.uniform(5.0, 15.0),
             entropy=random.uniform(0.05, 0.2),
             coord_group=group,
+            location_spoofing=True,  # Phase 4: bots spoof location
             lat=lat + random.gauss(0, 0.1),
             lon=lon + random.gauss(0, 0.1),
         )
@@ -269,6 +273,191 @@ class Simulator:
                 ))
 
         return interactions
+
+    def generate_location_history(
+        self,
+        time_steps: int = 100,
+        readings_per_step: int = 1,
+    ) -> dict[str, list[dict]]:
+        """
+        Generate location history for all users.
+        Phase 4: phase4_system_design.md §4
+
+        Honest users: stable locations near their origin.
+        Bots: teleport between distant locations (spoofing).
+        Adversarial: occasionally jump to random locations.
+
+        Returns:
+            dict: user_id -> list of {lat, lon, timestamp, accuracy, source}
+        """
+        base_time = datetime.now(timezone.utc) - timedelta(minutes=time_steps)
+        histories: dict[str, list[dict]] = {}
+
+        # Distant cities for bot teleportation
+        spoof_locations = [
+            (28.6139, 77.2090),   # Delhi
+            (19.0760, 72.8777),   # Mumbai
+            (13.0827, 80.2707),   # Chennai
+            (22.5726, 88.3639),   # Kolkata
+            (40.7128, -74.0060),  # New York
+            (51.5074, -0.1278),   # London
+        ]
+
+        for user in self.users:
+            uid = str(user.user_id)
+            history = []
+
+            for t in range(0, time_steps, max(time_steps // (readings_per_step * 10), 1)):
+                current_time = base_time + timedelta(minutes=t)
+
+                if user.location_spoofing:
+                    # Bots: teleport between distant cities
+                    if random.random() < 0.3:  # 30% chance of teleport per reading
+                        spoof_lat, spoof_lon = random.choice(spoof_locations)
+                        lat = spoof_lat + random.gauss(0, 0.01)
+                        lon = spoof_lon + random.gauss(0, 0.01)
+                    else:
+                        lat = user.lat + random.gauss(0, 0.05)
+                        lon = user.lon + random.gauss(0, 0.05)
+                    accuracy = random.uniform(100, 500)  # Poor GPS accuracy
+                    source = random.choice(["ip", "ip", "gps"])  # Mostly IP
+                elif user.user_type == UserType.ADVERSARIAL:
+                    # Adversarial: occasional jumps
+                    if random.random() < 0.1:
+                        lat = user.lat + random.gauss(0, 0.5)
+                        lon = user.lon + random.gauss(0, 0.5)
+                    else:
+                        lat = user.lat + random.gauss(0, 0.01)
+                        lon = user.lon + random.gauss(0, 0.01)
+                    accuracy = random.uniform(20, 150)
+                    source = "gps"
+                else:
+                    # Honest / Noisy: stable near origin
+                    lat = user.lat + random.gauss(0, 0.005)
+                    lon = user.lon + random.gauss(0, 0.005)
+                    accuracy = random.uniform(5, 50)  # Good GPS
+                    source = "gps"
+
+                history.append({
+                    "lat": lat,
+                    "lon": lon,
+                    "timestamp": current_time,
+                    "accuracy": accuracy,
+                    "source": source,
+                })
+
+            histories[uid] = history
+
+        return histories
+
+    def generate_user_metadata(
+        self,
+        interactions: list[SimulatedInteraction],
+    ) -> dict[str, dict]:
+        """
+        Generate Phase 6 metadata: device fingerprints, IP addresses, session data.
+
+        Honest users: 1-2 stable devices, 1-3 stable IPs, natural session gaps.
+        Bots: 3-8 rotating devices, 5-15 rotating IPs, continuous sessions.
+
+        Returns:
+            dict[user_id] -> {
+                "device_ids": list[str],
+                "ip_addresses": list[str],
+                "ip_locations": list[tuple[lat, lon]],
+                "timestamps": list[float],
+            }
+        """
+        metadata: dict[str, dict] = {}
+
+        # Pre-generate device/IP pools per user
+        user_devices: dict[str, list[str]] = {}
+        user_ips: dict[str, list[str]] = {}
+        user_ip_locs: dict[str, list[tuple[float, float]]] = {}
+
+        for user in self.users:
+            uid = str(user.user_id)
+
+            if user.user_type in (UserType.HONEST, UserType.NOISY):
+                # Stable: 1-2 devices, 1-3 IPs near their location
+                n_devices = random.randint(1, 2)
+                n_ips = random.randint(1, 3)
+                user_devices[uid] = [f"dev_{uid[:8]}_{i}" for i in range(n_devices)]
+                user_ips[uid] = [f"192.168.{random.randint(1,255)}.{random.randint(1,255)}"
+                                 for _ in range(n_ips)]
+                user_ip_locs[uid] = [
+                    (user.lat + random.gauss(0, 0.005), user.lon + random.gauss(0, 0.005))
+                    for _ in range(n_ips)
+                ]
+            elif user.user_type == UserType.ADVERSARIAL:
+                # Moderate rotation: 2-4 devices, 3-6 IPs
+                n_devices = random.randint(2, 4)
+                n_ips = random.randint(3, 6)
+                user_devices[uid] = [f"dev_{uid[:8]}_{i}" for i in range(n_devices)]
+                user_ips[uid] = [f"10.{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,255)}"
+                                 for _ in range(n_ips)]
+                user_ip_locs[uid] = [
+                    (user.lat + random.gauss(0, 0.1), user.lon + random.gauss(0, 0.1))
+                    for _ in range(n_ips)
+                ]
+            else:  # BOT
+                # Heavy rotation: 3-8 devices, 5-15 IPs with geographic spread
+                n_devices = random.randint(3, 8)
+                n_ips = random.randint(5, 15)
+                user_devices[uid] = [f"bot_{random.randint(1000,9999)}_{i}" for i in range(n_devices)]
+                user_ips[uid] = [f"{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,255)}.{random.randint(1,255)}"
+                                 for _ in range(n_ips)]
+                # Bots: IPs from all over the world (large geographic spread)
+                user_ip_locs[uid] = [
+                    (random.uniform(-60, 60), random.uniform(-180, 180))
+                    for _ in range(n_ips)
+                ]
+
+        # Collect per-user interaction data
+        user_inter: dict[str, list[SimulatedInteraction]] = {}
+        for inter in interactions:
+            uid = str(inter.user_id)
+            if uid not in user_inter:
+                user_inter[uid] = []
+            user_inter[uid].append(inter)
+
+        for user in self.users:
+            uid = str(user.user_id)
+            inters = user_inter.get(uid, [])
+
+            # Assign device/IP per interaction (rotating for bots)
+            devices_pool = user_devices.get(uid, ["unknown"])
+            ips_pool = user_ips.get(uid, ["0.0.0.0"])
+            ip_locs_pool = user_ip_locs.get(uid, [(0.0, 0.0)])
+
+            device_ids = []
+            ip_addrs = []
+            ip_locs = []
+            timestamps = []
+
+            for i, inter in enumerate(inters):
+                if user.user_type == UserType.BOT:
+                    # Bots rotate through devices/IPs
+                    device_ids.append(devices_pool[i % len(devices_pool)])
+                    ip_idx = i % len(ips_pool)
+                    ip_addrs.append(ips_pool[ip_idx])
+                    ip_locs.append(ip_locs_pool[ip_idx % len(ip_locs_pool)])
+                else:
+                    # Honest/noisy: mostly use primary device
+                    device_ids.append(devices_pool[0] if random.random() < 0.85 else random.choice(devices_pool))
+                    ip_addrs.append(ips_pool[0] if random.random() < 0.8 else random.choice(ips_pool))
+                    ip_locs.append(ip_locs_pool[0])
+
+                timestamps.append(inter.timestamp.timestamp())
+
+            metadata[uid] = {
+                "device_ids": device_ids,
+                "ip_addresses": ip_addrs,
+                "ip_locations": ip_locs,
+                "timestamps": timestamps,
+            }
+
+        return metadata
 
     def _generate_vote(self, user: SimulatedUser, post: SimulatedPost) -> int:
         """Generate a vote based on user type and post truth."""

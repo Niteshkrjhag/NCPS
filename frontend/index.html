@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="NCPS Dashboard — Real-time trust intelligence, credibility scoring, and coordinated bot detection">
+  <title>NCPS Dashboard — Trust Intelligence</title>
+  <link rel="stylesheet" href="/static/css/style.css">
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+</head>
+<body>
+
+  <!-- Header -->
+  <header class="app-header">
+    <div class="app-logo">
+      <div class="icon">&#9733;</div>
+      NCPS
+    </div>
+    <nav class="nav-links">
+      <a href="/" class="active">Dashboard</a>
+      <a href="/map.html">Map</a>
+      <a href="/compare.html">Compare</a>
+    </nav>
+    <div class="header-controls">
+      <select id="scenario-select">
+        <option value="attack">Coordinated Attack</option>
+        <option value="baseline">Honest Baseline</option>
+      </select>
+      <select id="phase-select">
+        <option value="1">Phase 1 — Base</option>
+        <option value="3">Phase 3 — Graph</option>
+        <option value="4">Phase 4 — Spatial</option>
+        <option value="5">Phase 5 — ML</option>
+        <option value="6" selected>Phase 6 — Full</option>
+      </select>
+      <button class="btn btn-primary" id="run-btn" onclick="runSimulation()">
+        <span id="run-text">&#9654; Run</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- Dashboard Grid -->
+  <div class="dashboard">
+
+    <!-- Metrics Row -->
+    <div class="metrics-row">
+      <div class="metrics-grid" id="metrics-grid">
+        <div class="metric-card">
+          <div class="metric-value text-green" id="val-accuracy">&mdash;</div>
+          <div class="metric-label">Accuracy</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-value text-red" id="val-attack">&mdash;</div>
+          <div class="metric-label">Attack Success</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-value text-blue" id="val-brier">&mdash;</div>
+          <div class="metric-label">Brier Score</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-value text-yellow" id="val-wcorr">&mdash;</div>
+          <div class="metric-label">Weight Corr</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-value text-cyan" id="val-users">&mdash;</div>
+          <div class="metric-label">Users</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-value text-purple" id="val-posts">&mdash;</div>
+          <div class="metric-label">Posts</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Left: User Intelligence -->
+    <div class="panel" id="user-panel">
+      <div class="panel-header">
+        <span class="panel-title">&#128100; User Intelligence</span>
+        <span class="text-muted" style="font-size:10px" id="user-count"></span>
+      </div>
+      <div class="panel-body" id="user-list">
+        <div class="loading"><div class="spinner"></div><span>Run simulation...</span></div>
+      </div>
+    </div>
+
+    <!-- Center: Network Graph -->
+    <div class="panel" id="graph-panel">
+      <div class="panel-header">
+        <span class="panel-title">&#128279; Network Graph</span>
+        <span class="text-muted" style="font-size:10px" id="edge-count"></span>
+      </div>
+      <div class="panel-body" style="padding:0;">
+        <div class="graph-container" id="graph-container">
+          <div class="loading"><div class="spinner"></div><span>Waiting for data...</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Right: Post Credibility -->
+    <div class="panel" id="post-panel">
+      <div class="panel-header">
+        <span class="panel-title">&#128196; Post Credibility</span>
+        <span class="text-muted" style="font-size:10px" id="post-count"></span>
+      </div>
+      <div class="panel-body" id="post-list">
+        <div class="loading"><div class="spinner"></div><span>Run simulation...</span></div>
+      </div>
+    </div>
+
+    <!-- Bottom: Metrics Tabs -->
+    <div class="panel bottom-panel" id="bottom-panel" style="display:none;">
+      <div class="tab-bar">
+        <button class="tab-btn active" onclick="switchTab(event, 'tab-overview')">Overview</button>
+        <button class="tab-btn" onclick="switchTab(event, 'tab-attack')">Attack Analysis</button>
+        <button class="tab-btn" onclick="switchTab(event, 'tab-anomaly')">Anomaly Detection</button>
+        <button class="tab-btn" onclick="switchTab(event, 'tab-weights')">Weight Distribution</button>
+      </div>
+      <div class="tab-content active" id="tab-overview">
+        <div class="chart-grid" id="overview-charts"></div>
+      </div>
+      <div class="tab-content" id="tab-attack">
+        <div class="chart-grid" id="attack-charts"></div>
+      </div>
+      <div class="tab-content" id="tab-anomaly">
+        <div class="chart-grid" id="anomaly-charts"></div>
+      </div>
+      <div class="tab-content" id="tab-weights">
+        <div class="chart-grid" id="weight-charts"></div>
+      </div>
+    </div>
+
+  </div>
+
+  <script src="/static/js/app.js"></script>
+</body>
+</html>

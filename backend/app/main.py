@@ -30,8 +30,12 @@ async def lifespan(app: FastAPI):
     logger.info("NCPS Backend starting up...")
 
     # Initialize database
-    await init_db()
-    logger.info("Database initialized")
+    try:
+        await init_db()
+        logger.info("Database initialized")
+    except Exception as e:
+        logger.warning(f"Database connection failed (non-fatal): {e}")
+        logger.warning("Running without database — API routes that need DB will fail")
 
     # Connect Redis
     try:

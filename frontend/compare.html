@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NCPS — Phase Comparison</title>
+  <meta name="description" content="NCPS Phase Comparison — Side-by-side analysis of system evolution from Phase 1 to Phase 6">
+  <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+  <header class="app-header">
+    <div class="app-logo">
+      <div class="icon">&#9733;</div>
+      NCPS
+    </div>
+    <nav class="nav-links">
+      <a href="/">Dashboard</a>
+      <a href="/map.html">Map</a>
+      <a href="/compare.html" class="active">Compare</a>
+    </nav>
+    <div class="header-controls">
+      <button class="btn btn-primary" id="compare-btn" onclick="runComparison()">
+        &#9654; Run All Phases
+      </button>
+    </div>
+  </header>
+
+  <div class="compare-container">
+    <h1 style="font-size:22px;margin-bottom:6px">Phase Comparison — Coordinated Attack</h1>
+    <p class="text-muted mb-16" style="font-size:13px">
+      Full pipeline evolution: rule-based (Phase 1) &rarr; graph trust (Phase 3) &rarr; spatial (Phase 4) &rarr; ML (Phase 5) &rarr; full signals (Phase 6)
+    </p>
+
+    <div id="compare-content">
+      <div class="loading" style="padding:80px 0">
+        <div class="spinner"></div>
+        <span>Click "Run All Phases" to generate comparison data</span>
+      </div>
+    </div>
+
+    <!-- Charts Section -->
+    <div id="charts-section" style="display:none;">
+      <h2 style="margin:32px 0 16px;font-size:18px">Visual Comparison</h2>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+        <div class="panel">
+          <div class="panel-header"><span class="panel-title">Accuracy (higher = better)</span></div>
+          <div class="panel-body"><div class="chart-container" id="chart-accuracy"></div></div>
+        </div>
+        <div class="panel">
+          <div class="panel-header"><span class="panel-title">Attack Success (lower = better)</span></div>
+          <div class="panel-body"><div class="chart-container" id="chart-attack"></div></div>
+        </div>
+        <div class="panel">
+          <div class="panel-header"><span class="panel-title">Anomaly Recall (higher = better)</span></div>
+          <div class="panel-body"><div class="chart-container" id="chart-recall"></div></div>
+        </div>
+        <div class="panel">
+          <div class="panel-header"><span class="panel-title">Weight Correlation (higher = better)</span></div>
+          <div class="panel-body"><div class="chart-container" id="chart-wcorr"></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const API = window.location.origin;
+
+    async function runComparison() {
+      const btn = document.getElementById('compare-btn');
+      btn.disabled = true;
+      btn.innerHTML = '&#9203; Running all phases...';
+      document.getElementById('compare-content').innerHTML =
+        '<div class="loading" style="padding:80px 0"><div class="spinner"></div><span>Running all phases (this may take 30-60 seconds)...</span></div>';
+
+      try {
+        const res = await fetch(API + '/api/simulation/compare');
+        if (!res.ok) throw new Error('Server error: ' + res.status);
+        const data = await res.json();
+        renderComparison(data);
+      } catch (e) {
+        document.getElementById('compare-content').innerHTML =
+          '<div class="loading"><span class="text-red">Error: ' + e.message + '</span></div>';
+      }
+      btn.disabled = false;
+      btn.innerHTML = '&#9654; Run All Phases';
+    }
+
+    function renderComparison(data) {
+      const phases = ['P1_attack', 'P3_attack', 'P4_attack', 'P5_attack', 'P6_attack'];
+      const labels = ['Phase 1', 'Phase 3', 'Phase 4', 'Phase 5', 'Phase 6'];
+      const colors = ['#ef4444', '#f59e0b', '#3b82f6', '#8b5cf6', '#10b981'];
+      const metrics = ['accuracy', 'attack_success', 'brier_score', 'weight_correlation', 'anomaly_precision', 'anomaly_recall'];
+      const metricLabels = ['Accuracy &uarr;', 'Attack Success &darr;', 'Brier Score &darr;', 'Weight Correlation &uarr;', 'Anomaly Precision &uarr;', 'Anomaly Recall &uarr;'];
+      const lowerBetter = [false, true, true, false, false, false];
+
+      // Table
+      let html = '<table class="compare-table"><thead><tr><th>Metric</th>';
+      labels.forEach((l, i) => html += '<th style="color:' + colors[i] + '">' + l + '</th>');
+      html += '</tr></thead><tbody>';
+
+      metrics.forEach((m, mi) => {
+        html += '<tr><td>' + metricLabels[mi] + '</td>';
+        const vals = phases.map(p => data[p] ? data[p][m] : null);
+        const validVals = vals.filter(v => v !== null);
+        const best = lowerBetter[mi] ? Math.min(...validVals) : Math.max(...validVals);
+        const worst = lowerBetter[mi] ? Math.max(...validVals) : Math.min(...validVals);
+
+        vals.forEach(v => {
+          if (v === null) { html += '<td>&mdash;</td>'; return; }
+          let cls = '';
+          if (v === best) cls = 'best';
+          else if (v === worst) cls = 'worst';
+          html += '<td class="' + cls + '">' + v.toFixed(3) + '</td>';
+        });
+        html += '</tr>';
+      });
+      html += '</tbody></table>';
+
+      // Improvement Summary
+      if (data.P1_attack && data.P6_attack) {
+        const p1 = data.P1_attack, p6 = data.P6_attack;
+        html += '<div class="panel mt-16" style="border-color:var(--accent-green)33">';
+        html += '<div class="panel-header"><span class="panel-title" style="color:var(--accent-green)">&#10003; Phase 1 &rarr; Phase 6 Improvement</span></div>';
+        html += '<div class="panel-body" style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;text-align:center">';
+        html += improvementCell('Accuracy', p1.accuracy, p6.accuracy, false);
+        html += improvementCell('Attack Success', p1.attack_success, p6.attack_success, true);
+        html += improvementCell('Anomaly Recall', p1.anomaly_recall, p6.anomaly_recall, false);
+        html += '</div></div>';
+      }
+
+      document.getElementById('compare-content').innerHTML = html;
+
+      // Render charts
+      document.getElementById('charts-section').style.display = 'block';
+      renderBarChart('chart-accuracy', phases.map((p, i) => ({ label: labels[i], value: data[p]?.accuracy || 0, color: colors[i] })));
+      renderBarChart('chart-attack', phases.map((p, i) => ({ label: labels[i], value: data[p]?.attack_success || 0, color: colors[i] })));
+      renderBarChart('chart-recall', phases.map((p, i) => ({ label: labels[i], value: data[p]?.anomaly_recall || 0, color: colors[i] })));
+      renderBarChart('chart-wcorr', phases.map((p, i) => ({ label: labels[i], value: data[p]?.weight_correlation || 0, color: colors[i] })));
+    }
+
+    function improvementCell(label, before, after, lowerBetter) {
+      const improved = lowerBetter ? after < before : after > before;
+      const delta = after - before;
+      const arrow = improved ? '&darr;' : '&uarr;';
+      const color = improved ? '#10b981' : '#ef4444';
+      return '<div>' +
+        '<div style="font-size:11px;color:var(--text-muted)">' + label + '</div>' +
+        '<div class="mono" style="font-size:14px;margin-top:4px">' +
+        '<span style="color:var(--text-secondary)">' + before.toFixed(3) + '</span>' +
+        ' <span style="color:var(--text-muted)">&rarr;</span> ' +
+        '<span style="color:' + color + ';font-weight:700">' + after.toFixed(3) + '</span>' +
+        '</div>' +
+        '<div style="font-size:10px;color:' + color + ';margin-top:2px">' + (delta >= 0 ? '+' : '') + delta.toFixed(3) + '</div>' +
+        '</div>';
+    }
+
+    function renderBarChart(containerId, items) {
+      const container = document.getElementById(containerId);
+      if (!container) return;
+      const maxVal = Math.max(...items.map(i => i.value), 0.01);
+      let html = '<div class="chart-bar" style="padding-bottom:28px;">';
+      items.forEach(item => {
+        const h = Math.max(2, (item.value / maxVal) * 85);
+        html += '<div class="chart-bar-item" style="height:' + h + '%;background:' + item.color + ';">';
+        html += '<div class="chart-bar-value" style="color:' + item.color + '">' + item.value.toFixed(3) + '</div>';
+        html += '<div class="chart-bar-label">' + item.label + '</div>';
+        html += '</div>';
+      });
+      html += '</div>';
+      container.innerHTML = html;
+    }
+  </script>
+</body>
+</html>

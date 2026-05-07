@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.user import User
 from app.models.post import Post
-from app.models.interaction import Interaction, UserLocation, Alert
+from app.models.interaction import Interaction, UserLocation, UserGraph, Alert
 
 
 # ──────────────────────────────────────────────────────────
@@ -314,3 +314,72 @@ class LocationRepository:
             .limit(limit)
         )
         return list(result.scalars().all())
+
+
+# ──────────────────────────────────────────────────────────
+# Graph Repository (database_design.md §3.5)
+# ──────────────────────────────────────────────────────────
+
+class GraphRepository:
+    """Database operations for the user interaction graph."""
+
+    def __init__(self, session: AsyncSession):
+        self.session = session
+
+    async def upsert_edge(
+        self,
+        user_id: uuid.UUID,
+        neighbor_id: uuid.UUID,
+        agreement_score: float,
+        time_similarity: float,
+        frequency_score: float,
+        edge_weight: float,
+    ) -> UserGraph:
+        """Insert or update a graph edge."""
+        result = await self.session.execute(
+            select(UserGraph).where(
+                UserGraph.user_id == user_id,
+                UserGraph.neighbor_id == neighbor_id,
+            )
+        )
+        edge = result.scalar_one_or_none()
+
+        if edge is None:
+            edge = UserGraph(
+                user_id=user_id,
+                neighbor_id=neighbor_id,
+                agreement_score=agreement_score,
+                time_similarity=time_similarity,
+                frequency_score=frequency_score,
+                edge_weight=edge_weight,
+            )
+            self.session.add(edge)
+        else:
+            edge.agreement_score = agreement_score
+            edge.time_similarity = time_similarity
+            edge.frequency_score = frequency_score
+            edge.edge_weight = edge_weight
+            edge.last_updated = datetime.now(timezone.utc)
+
+        await self.session.flush()
+        return edge
+
+    async def get_neighbors(
+        self,
+        user_id: uuid.UUID,
+    ) -> list[UserGraph]:
+        """Get all neighbors for a user."""
+        result = await self.session.execute(
+            select(UserGraph)
+            .where(UserGraph.user_id == user_id)
+            .order_by(UserGraph.edge_weight.desc())
+        )
+        return list(result.scalars().all())
+
+    async def get_all_edges(self) -> list[UserGraph]:
+        """Get all edges in the graph."""
+        result = await self.session.execute(
+            select(UserGraph).order_by(UserGraph.edge_weight.desc())
+        )
+        return list(result.scalars().all())
+

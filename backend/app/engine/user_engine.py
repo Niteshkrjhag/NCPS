@@ -224,12 +224,12 @@ def compute_consensus_deviation(
 
 def compute_anomaly(
     signals: AnomalySignals,
+    anom_ml: float = 0.0,
 ) -> float:
     """
-    Final anomaly score (rule-based).
+    Final anomaly score (rule-based + ML blend).
     Formula 3: Anom_rule = 1 - exp(- Σ α_m × D_m)
-
-    In MVP, β = 0 so Anom_i = Anom_rule.
+    Phase 5:   Anom_i = (1 - β) × Anom_rule + β × Anom_ML
     """
     weights = config.anomaly_alpha_weights
     deviations = [
@@ -243,9 +243,8 @@ def compute_anomaly(
     weighted_sum = sum(w * d for w, d in zip(weights, deviations))
     anom_rule = 1.0 - math.exp(-weighted_sum)
 
-    # MVP: β = 0, so final = rule-based only
-    anom_final = (1.0 - config.anomaly_beta) * anom_rule
-    # + config.anomaly_beta * anom_ml  # Phase 5
+    # Phase 5: blend rule-based with ML anomaly
+    anom_final = (1.0 - config.anomaly_beta) * anom_rule + config.anomaly_beta * anom_ml
 
     return min(max(anom_final, 0.0), 1.0)
 
@@ -279,6 +278,7 @@ def compute_user_state(
     coordination_score: float = 0.0,
     location_inconsistency: float = 0.0,
     trust_override: float | None = None,
+    anom_ml: float = 0.0,
 ) -> UserStateSnapshot:
     """
     Full user state computation (Algorithm 1 from pseudo_algorithm.md).
@@ -291,6 +291,7 @@ def compute_user_state(
         location_inconsistency: D_5 from spatial module (0.0 in MVP).
         trust_override: T_i from graph trust propagation (Phase 3).
             If None, falls back to R_i* (Phase 1 behavior).
+        anom_ml: ML anomaly score from Phase 5 AnomalyMLModel (0.0 if unavailable).
 
     Returns:
         UserStateSnapshot with all computed values.
@@ -312,7 +313,7 @@ def compute_user_state(
         coordination_score=coordination_score,
         location_inconsistency=location_inconsistency,
     )
-    anomaly_score = compute_anomaly(signals)
+    anomaly_score = compute_anomaly(signals, anom_ml=anom_ml)
 
     # Phase 3: Use graph-propagated trust if available, else fall back to R_i*
     trust_score = trust_override if trust_override is not None else r_star
@@ -332,3 +333,4 @@ def compute_user_state(
         trust_score=trust_score,
         weight=weight,
     )
+

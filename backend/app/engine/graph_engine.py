@@ -1,14 +1,14 @@
 """
-Graph Engine — Phase 3 from phase3_system_design.md
+Graph Engine -- Phase 3 from phase3_system_design.md
 
 Implements:
-  - Graph construction: edge weights A_ij (§4)
-  - Row normalization: Ã_ij (§5)
-  - Trust propagation: T_i iterative (§6)
-  - Coordination detection: Sim(i,j), S_coord(i) (§8)
+  - Graph construction: edge weights A_ij (Sec 4)
+  - Row normalization: A_norm_ij (Sec 5)
+  - Trust propagation: T_i iterative (Sec 6)
+  - Coordination detection: Sim(i,j), S_coord(i) (Sec 8)
 
-Pipeline (§9):
-  Vote → Update edges → Run trust propagation → Compute coordination → Update anomaly
+Pipeline (Sec 9):
+  Vote -> Update edges -> Run trust propagation -> Compute coordination -> Update anomaly
 """
 
 from __future__ import annotations
@@ -37,32 +37,32 @@ class EdgeWeight:
 
     user_i: str
     user_j: str
-    agreement: float       # Agree_ij ∈ [0,1]
-    time_similarity: float # TimeSim_ij ∈ [0,1]
-    frequency: float       # Freq_ij ∈ [0,1]
-    weight: float          # A_ij = w₁·Agree + w₂·TimeSim + w₃·Freq
+    agreement: float       # Agree_ij in [0,1]
+    time_similarity: float # TimeSim_ij in [0,1]
+    frequency: float       # Freq_ij in [0,1]
+    weight: float          # A_ij = w1*Agree + w2*TimeSim + w3*Freq
 
 
 @dataclass
 class GraphState:
     """Complete graph state after computation."""
 
-    edges: dict[str, dict[str, float]]          # user_i → {user_j → A_ij}
-    normalized_edges: dict[str, dict[str, float]]  # user_i → {user_j → Ã_ij}
-    trust_scores: dict[str, float]              # user_id → T_i
-    coordination_scores: dict[str, float]       # user_id → S_coord(i)
-    iterations_converged: int                   # How many iterations to converge
+    edges: dict[str, dict[str, float]]             # user_i -> {user_j -> A_ij}
+    normalized_edges: dict[str, dict[str, float]]   # user_i -> {user_j -> A_norm_ij}
+    trust_scores: dict[str, float]                  # user_id -> T_i
+    coordination_scores: dict[str, float]           # user_id -> S_coord_i
+    iterations_converged: int                       # How many iterations to converge
 
 
 # ──────────────────────────────────────────────────────────
-# §4: Graph Construction
+# Sec 4: Graph Construction
 # ──────────────────────────────────────────────────────────
 
 def _build_user_post_map(
     votes: list[VoteRecord],
 ) -> dict[str, dict[str, tuple[int, datetime]]]:
     """
-    Build map: user_id → {post_id → (vote, timestamp)}.
+    Build map: user_id -> {post_id -> (vote, timestamp)}.
     """
     user_posts: dict[str, dict[str, tuple[int, datetime]]] = defaultdict(dict)
     for v in votes:
@@ -74,7 +74,7 @@ def _build_post_users_map(
     votes: list[VoteRecord],
 ) -> dict[str, list[str]]:
     """
-    Build map: post_id → [user_ids who voted on it].
+    Build map: post_id -> [user_ids who voted on it].
     """
     post_users: dict[str, list[str]] = defaultdict(list)
     for v in votes:
@@ -91,12 +91,13 @@ def compute_edge_weight(
     """
     Compute edge weight A_ij between two users.
 
-    §4.3:
-      A_ij = w₁·Agree_ij + w₂·TimeSim_ij + w₃·Freq_ij
+    Sec 4.3::
+
+        A_ij = w1*Agree_ij + w2*TimeSim_ij + w3*Freq_ij
 
     Args:
-        user_i_votes: {post_id → (vote, timestamp)} for user i
-        user_j_votes: {post_id → (vote, timestamp)} for user j
+        user_i_votes: post_id -> (vote, timestamp) for user i
+        user_j_votes: post_id -> (vote, timestamp) for user j
         p_max: Maximum shared posts across any pair (for normalization)
 
     Returns:
@@ -109,14 +110,14 @@ def compute_edge_weight(
     if n_shared == 0:
         return None
 
-    # §4.3 — Agreement: Agree_ij = (1/|P_ij|) Σ I(s_i = s_j)
+    # Sec 4.3 -- Agreement: Agree_ij = (1/|P_ij|) sum I(s_i == s_j)
     agree_count = 0
     for post_id in shared_posts:
         if user_i_votes[post_id][0] == user_j_votes[post_id][0]:
             agree_count += 1
     agreement = agree_count / n_shared
 
-    # §4.3 — Time Similarity: TimeSim_ij = (1/|P_ij|) Σ exp(-|t_i - t_j| / τ)
+    # Sec 4.3 -- Time Similarity: TimeSim_ij = (1/|P_ij|) sum exp(-|t_i - t_j| / tau)
     tau = config.graph_tau
     time_sim_sum = 0.0
     for post_id in shared_posts:
@@ -126,7 +127,7 @@ def compute_edge_weight(
         time_sim_sum += math.exp(-dt / tau)
     time_similarity = time_sim_sum / n_shared
 
-    # §4.3 — Frequency: Freq_ij = |P_ij| / P_max
+    # Sec 4.3 -- Frequency: Freq_ij = |P_ij| / P_max
     frequency = n_shared / max(p_max, 1)
 
     # Final edge weight
@@ -149,11 +150,11 @@ def build_graph(
     """
     Build the full user interaction graph.
 
-    §4: For each pair of users who voted on the same post,
+    Sec 4: For each pair of users who voted on the same post,
     compute A_ij and keep top-K neighbors per user.
 
     Returns:
-        Adjacency dict: user_i → {user_j → A_ij}
+        Adjacency dict: user_i -> {user_j -> A_ij}
     """
     user_posts = _build_user_post_map(votes)
     post_users = _build_post_users_map(votes)
@@ -184,7 +185,7 @@ def build_graph(
             edges[u_i][u_j] = edge.weight
             edges[u_j][u_i] = edge.weight
 
-    # §12: Keep only top-K neighbors per user (sparse graph)
+    # Sec 12: Keep only top-K neighbors per user (sparse graph)
     k = config.graph_max_neighbors
     sparse_edges: dict[str, dict[str, float]] = {}
     for uid, neighbors in edges.items():
@@ -197,7 +198,7 @@ def build_graph(
 
 
 # ──────────────────────────────────────────────────────────
-# §5: Row Normalization
+# Sec 5: Row Normalization
 # ──────────────────────────────────────────────────────────
 
 def normalize_graph(
@@ -206,7 +207,9 @@ def normalize_graph(
     """
     Row-normalize the adjacency matrix.
 
-    §5: Ã_ij = A_ij / (Σ_k A_ik + ε)
+    Sec 5::
+
+        A_norm_ij = A_ij / (sum_k A_ik + eps)
     """
     normalized: dict[str, dict[str, float]] = {}
 
@@ -220,7 +223,7 @@ def normalize_graph(
 
 
 # ──────────────────────────────────────────────────────────
-# §6: Trust Propagation
+# Sec 6: Trust Propagation
 # ──────────────────────────────────────────────────────────
 
 def propagate_trust(
@@ -231,19 +234,20 @@ def propagate_trust(
     """
     Conservative trust propagation.
 
-    §6.2 (conservative variant):
-      T = R*
-      repeat:
-          T_new[i] = λ_g × neighbor_trust + (1 - λ_g) × R_i*
-      until convergence
+    Sec 6.2 (conservative variant)::
+
+        T = R_star
+        repeat:
+            T_new[i] = lambda_g * neighbor_trust + (1 - lambda_g) * R_i_star
+        until convergence
 
     Key safety rule: network component cannot INCREASE trust beyond
-    the user's own R_i*. It can only decrease. This prevents bots
+    the user's own R_i_star. It can only decrease. This prevents bots
     from boosting each other.
 
     Args:
-        normalized_edges: Row-normalized adjacency Ã.
-        r_star_scores: R_i* for each user (base trust).
+        normalized_edges: Row-normalized adjacency A_norm.
+        r_star_scores: R_i_star for each user (base trust).
         all_user_ids: List of all user IDs.
 
     Returns:
@@ -276,7 +280,7 @@ def propagate_trust(
             for nid, a_norm in neighbors.items():
                 network_sum += a_norm * trust.get(nid, 0.0)
 
-            # T_i = λ_g × network + (1 - λ_g) × R_i*
+            # T_i = lambda_g * network + (1 - lambda_g) * R_i_star
             t_new = lambda_g * network_sum + (1.0 - lambda_g) * r_star
 
             # SAFETY: network can only pull trust DOWN, never above R_i*
@@ -299,7 +303,7 @@ def propagate_trust(
 
 
 # ──────────────────────────────────────────────────────────
-# §8: Coordination Detection
+# Sec 8: Coordination Detection
 # ──────────────────────────────────────────────────────────
 
 def compute_pairwise_similarity(
@@ -307,13 +311,13 @@ def compute_pairwise_similarity(
     user_j_votes: dict[str, tuple[int, datetime]],
 ) -> float:
     """
-    §8.1: Pairwise coordination similarity.
+    Sec 8.1: Pairwise coordination similarity.
 
     Measures two separate signals:
       1. Agreement rate: how often users vote the same way
       2. Timing sync: how close in time their votes are
 
-    Sim(i,j) = agreement_rate × timing_sync
+    ``Sim(i,j) = agreement_rate * timing_sync``
 
     This catches bots who vote the same way AND at similar times.
     Honest users who agree but vote hours apart get low similarity.
@@ -358,9 +362,9 @@ def compute_coordination_scores(
     edges: dict[str, dict[str, float]],
 ) -> dict[str, float]:
     """
-    §8.2: Coordination score for each user.
+    Sec 8.2: Coordination score for each user.
 
-    S_coord(i) = average of top-3 similarities to neighbors
+    ``S_coord_i = average of top-3 similarities to neighbors``
 
     Using average of top-K instead of max reduces noise from
     honest users who happen to agree with one neighbor.
@@ -403,7 +407,7 @@ def compute_coordination_scores(
 
 
 # ──────────────────────────────────────────────────────────
-# Full Graph Pipeline (§9)
+# Full Graph Pipeline (Sec 9)
 # ──────────────────────────────────────────────────────────
 
 def run_graph_pipeline(
@@ -413,20 +417,21 @@ def run_graph_pipeline(
     """
     Full Phase 3 graph pipeline.
 
-    CRITICAL ORDER (§8.4 + §9):
-      1. Build graph edges A_ij
-      2. Detect coordination → S_coord(i)
-      3. Dampen edges FROM coordinated users
-      4. Penalize R_i* for coordinated users
-      5. Normalize dampened graph → Ã_ij
-      6. Propagate trust using penalized base scores → T_i
+    CRITICAL ORDER (Sec 8.4 + Sec 9)::
+
+        1. Build graph edges A_ij
+        2. Detect coordination -> S_coord_i
+        3. Dampen edges FROM coordinated users
+        4. Penalize R_i_star for coordinated users
+        5. Normalize dampened graph -> A_norm_ij
+        6. Propagate trust using penalized base scores -> T_i
 
     This ensures coordinated bots can neither contribute trust
     through edges NOR start with high base trust.
 
     Args:
         votes: All vote records in the system.
-        r_star_scores: R_i* for each user.
+        r_star_scores: R_i_star for each user.
 
     Returns:
         GraphState with edges, trust, and coordination scores.
