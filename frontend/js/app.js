@@ -3,7 +3,7 @@
  * State management, D3 network graph, charts, and API integration.
  */
 
-const API = window.location.origin;
+const API = "https://ncps-tby7.onrender.com";
 let currentState = null;
 
 // ═══════════════════════════════════════════════════════════
